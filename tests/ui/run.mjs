@@ -52,8 +52,28 @@ async function screenshot(page, name) {
   await page.screenshot({ path: join(artifacts, name), fullPage: true });
 }
 
+async function navigateToPage(page, name) {
+  const link = page.getByRole('link', { name, exact: true });
+  await link.click();
+  // Hash navigation and its handler can finish after click() resolves. Waiting
+  // for the hash alone is insufficient; assert the rendered destination instead.
+  await page.locator(`#page-${name.toLowerCase()}`).waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await link.getAttribute('aria-current'), 'page', `Active navigation item for ${name}`);
+}
+
 async function runPreviewChecks(url) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1050 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+  // Exercise delayed hashchange delivery so navigation checks cannot depend on
+  // a click returning after the page has rendered. This affects this fixture only.
+  await context.addInitScript(() => {
+    window.addEventListener('hashchange', (event) => {
+      if (!event.isTrusted) return;
+      event.stopImmediatePropagation();
+      setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange', {
+        oldURL: event.oldURL, newURL: event.newURL,
+      })), 100);
+    }, { capture: true });
+  });
   const page = await context.newPage();
   activePage = page;
   const errors = [];
@@ -72,9 +92,8 @@ async function runPreviewChecks(url) {
     ['Sharing', 'Share what you need.'], ['Security', 'Private, from the start.'],
     ['Diagnostics', 'Connection, in focus.'], ['Devices', 'Your desk, connected.'],
   ]) {
-    await page.getByRole('link', { name, exact: true }).click();
+    await navigateToPage(page, name);
     assert.equal(await page.getByRole('heading', { name: heading, exact: true }).isVisible(), true);
-    assert.equal(await page.getByRole('link', { name, exact: true }).getAttribute('aria-current'), 'page');
     if (name === 'Diagnostics') await screenshot(page, 'diagnostics-preview.png');
   }
 
@@ -99,12 +118,12 @@ async function runPreviewChecks(url) {
   for (const width of [390, 760, 1024, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     for (const name of ['Devices', 'Sharing', 'Security', 'Diagnostics']) {
-      await page.getByRole('link', { name, exact: true }).click();
+      await navigateToPage(page, name);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
       assert.equal(overflow, false, `Horizontal overflow at ${width}px on ${name}`);
     }
     if (width === 390) {
-      await page.getByRole('link', { name: 'Devices', exact: true }).click();
+      await navigateToPage(page, 'Devices');
       assert.equal(await page.locator('.statusbar-help').isVisible(), false);
       await screenshot(page, 'first-run-narrow.png');
     }
@@ -215,7 +234,7 @@ async function runSyntheticNativeChecks(url) {
   await page.waitForFunction(() => uiTest.status.settings.peer_on_left);
   assert.equal(await page.getByRole('button', { name: 'Peer on left', exact: true }).getAttribute('aria-pressed'), 'true');
 
-  await page.getByRole('link', { name: 'Sharing', exact: true }).click();
+  await navigateToPage(page, 'Sharing');
   assert.equal(await page.getByRole('checkbox', { name: 'Share plain-text clipboard', exact: true }).isChecked(), false);
   assert.equal(await page.getByRole('checkbox', { name: 'Allow file transfers', exact: true }).isChecked(), false);
   await page.getByRole('checkbox', { name: 'Share plain-text clipboard', exact: true }).check();
@@ -233,7 +252,7 @@ async function runSyntheticNativeChecks(url) {
   await page.getByRole('button', { name: 'Accept file', exact: true }).click();
   assert.equal(await page.evaluate(() => uiTest.calls.some((call) => call.command === 'respond_file' && call.args.accept === true && call.args.id === 'synthetic-file-id')), true);
 
-  await page.getByRole('link', { name: 'Diagnostics', exact: true }).click();
+  await navigateToPage(page, 'Diagnostics');
   assert.equal(await page.locator('#logs-directory').textContent(), 'C:\\SyntheticUiFixture\\Logs');
   assert.equal(await page.locator('#logs-retained').textContent(), '1.00 MiB retained · 6 MiB limit');
   assert.equal(await page.locator('#logs-health').textContent(), '2 dropped events · 0 write failures');
@@ -309,14 +328,14 @@ async function runSyntheticNativeChecks(url) {
   });
   await page.locator('#input-recovery-hint').waitFor({ state: 'visible' });
   assert.match(await page.locator('#input-recovery-hint').textContent(), /press and release/);
-  await page.getByRole('link', { name: 'Devices', exact: true }).click();
+  await navigateToPage(page, 'Devices');
   assert.equal(await page.locator('#input-recovery-hint').isVisible(), true, 'Local release guidance must remain visible outside Diagnostics');
   await page.evaluate(() => {
     uiTest.status.input_diagnostics.held_input_recovery_required = false;
     uiTest.status.input_diagnostics.held_physical_keys = 0;
   });
   await page.locator('#input-recovery-hint').waitFor({ state: 'hidden' });
-  await page.getByRole('link', { name: 'Security', exact: true }).click();
+  await navigateToPage(page, 'Security');
   await page.evaluate(() => { uiTest.status.input_diagnostics.held_input_recovery_required = true; });
   await page.locator('#input-recovery-hint').waitFor({ state: 'visible' });
   await page.getByRole('button', { name: 'Stop sharing now', exact: true }).click();
@@ -328,7 +347,7 @@ async function runSyntheticNativeChecks(url) {
   assert.equal(await page.getByRole('button', { name: 'Stop sharing now', exact: true }).isEnabled(), false);
   await page.evaluate(() => { uiTest.failStatus = false; });
   await page.locator('#connection-pill').getByText('Sharing paused', { exact: true }).waitFor();
-  await page.getByRole('link', { name: 'Devices', exact: true }).click();
+  await navigateToPage(page, 'Devices');
   assert.equal(await page.getByRole('checkbox', { name: 'Enable desk sharing', exact: true }).isEnabled(), true);
   assert.deepEqual(errors, [], 'Unexpected browser JavaScript errors with the synthetic bridge');
   await context.close(); activePage = null;
@@ -341,7 +360,7 @@ async function runStartupFailureChecks(url) {
   const page = await context.newPage(); activePage = page;
   const errors = []; page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(url, { waitUntil: 'networkidle' });
-  await page.getByRole('link', { name: 'Diagnostics', exact: true }).click();
+  await navigateToPage(page, 'Diagnostics');
   assert.equal(await page.locator('#connection-pill span').textContent(), 'Engine unavailable');
   assert.match(await page.locator('#startup-error').textContent(), /Synthetic engine unavailable/);
   assert.equal(await page.locator('#metric-input').textContent(), 'Unavailable');
@@ -358,7 +377,7 @@ async function runStartupFailureChecks(url) {
   await page.getByRole('button', { name: 'Open logs folder', exact: true }).click();
   assert.equal(await page.evaluate(() => uiTest.calls.some((call) => call.command === 'open_log_folder')), true);
   assert.equal(await page.evaluate(() => uiTest.calls.find((call) => call.command === 'open_log_folder').args), undefined);
-  await page.getByRole('link', { name: 'Devices', exact: true }).click();
+  await navigateToPage(page, 'Devices');
   assert.equal(await page.getByRole('checkbox', { name: 'Enable desk sharing', exact: true }).isEnabled(), false);
   assert.equal(await page.locator('#remote-machine').isVisible(), false);
   assert.deepEqual(errors, []);

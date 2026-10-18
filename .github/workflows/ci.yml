@@ -77,7 +77,18 @@ jobs:
       - name: Install UI test browser
         run: npx playwright install chromium
       - name: Browser preview and synthetic bridge checks
+        id: ui_checks
+        env:
+          UI_TEST_ARTIFACTS_DIR: ${{ runner.temp }}/emc-ui-test-artifacts
         run: npm run test:ui
+      - name: Save UI failure screenshot
+        if: ${{ failure() && steps.ui_checks.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: easy-mouse-connect-ui-failure-${{ github.sha }}
+          path: ${{ runner.temp }}/emc-ui-test-artifacts/failure.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Check desktop
         run: cargo +stable clippy --locked --manifest-path apps/desktop/Cargo.toml --all-targets -- -D warnings
       - name: Build unsigned NSIS package
