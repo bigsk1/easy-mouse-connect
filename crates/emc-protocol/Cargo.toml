@@ -1,0 +1,10 @@
+[package]
+name = "emc-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+postcard = { version = "1", features = ["use-std"] }

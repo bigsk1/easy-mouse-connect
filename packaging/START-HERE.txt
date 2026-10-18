@@ -1,0 +1,159 @@
+EASY MOUSE CONNECT 0.3.5 - WINDOWS X64 PREVIEW
+
+Share a mouse and keyboard between two explicitly paired Windows PCs.
+Connections require encryption and a trusted device identity.
+Source and support: https://github.com/bigsk1/easy-mouse-connect
+
+INSTALL AND OPEN
+Install the preview locally on each PC, or run a local copy of the portable
+executable. The installer is per-user, needs no administrator privileges,
+and offers an optional desktop shortcut. Open the app from Start or that
+shortcut. A second launch restores the existing instance.
+
+Microsoft Edge WebView2 Runtime is required. Rust and Node are not required
+to run the app. If WebView2 is absent, install Microsoft's Evergreen runtime:
+https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+
+Each PC creates its OWN protected identity under:
+%LOCALAPPDATA%\EasyMouseConnect
+Never copy identity.dat, pairing credentials or runtime settings between PCs.
+
+PAIR THE PCS
+1. Keep local mouse/keyboard input available on both PCs. Use the same app
+   version on each. Make the receiver's IP reachable on TCP port 24859.
+2. On PC B open Devices > Pair a device > Show a pairing code > Generate code.
+3. On PC A choose Connect to a device, enter B's reachable IP, and TYPE B's
+   12-character code, displayed as XXXX-XXXX-XXXX. Spaces/hyphens are optional
+   and letter case is ignored. Click Pair devices. No shared clipboard or
+   invitation file is needed.
+4. The code expires after five minutes and admits at most five attempts;
+   failed or abandoned attempts count. Generate a fresh code after either
+   limit. Keep the code private.
+5. Set Peer on left/right on each PC for the other PC's position. The two
+   settings should be opposite. Enable desk sharing and Move across screen
+   edges. Test Ctrl+Alt+Escape locally before relying on remote control.
+6. Release held local keys/buttons and push outward through the configured
+   exposed side edge of a monitor, away from corners. Moving between monitors
+   on the same PC stays local. Windows display rectangles determine the edges,
+   including stacked/portrait layouts, negative coordinates and gaps.
+
+The PC that ENTERED the code dials automatically every three seconds while
+sharing is enabled. Use Reconnect there; the code-generating PC listens.
+
+Different LAN subnets require routing. Across locations, use an existing VPN
+such as Tailscale with both peers online, authorized and allowed by policy.
+Entering an IP does not create a route or a VPN. The app does not open firewall
+rules automatically. See docs/networking.md in the source for the explicit
+peer-scoped firewall helper. Do not disable Windows Firewall or expose the
+listener through internet port forwarding to make a connection work.
+
+DAILY CONTROLS
+Move back through the shared edge to return, or press Ctrl+Alt+Escape on the
+controller to release. Genuine physical input on the receiver can also reclaim
+control. Receiver movement has a small jitter threshold; keydown, buttons and
+wheel reclaim immediately. Keep mouse/keyboard hardware connected to the PC
+you intend to use as controller.
+
+Closing the window hides it in the tray. Tray Open, a tray click or a second
+launch restores the window. Pause/Resume changes sharing availability;
+Stop sharing pauses and releases input. Quit Easy Mouse Connect exits the app.
+Forget device revokes trust and requires fresh explicit pairing to restore it.
+
+A protected held key/button can block crossing after a device or desktop
+switch. Release the actual control. If its UP was missed, press and release
+the affected modifier/button locally when prompted. The sender's pointer
+currently remains parked at its edge while routing remotely.
+
+CLIPBOARD AND FILES
+Both features start OFF. Enable each desired feature on BOTH PCs in Sharing.
+Clipboard supports plain text up to 1 MiB. Copy new text after connecting;
+enabling sharing does not immediately send the existing clipboard.
+Pairing-code-shaped text and legacy invitations are excluded from sync.
+
+To send a file, enable Allow file transfers, drop a regular file into the app,
+click Send file, and approve the offer on the receiving PC. Each file must be
+SMALLER THAN 100,000,000 bytes; the exact limit and larger files are rejected.
+The default receiving path is:
+%USERPROFILE%\Downloads\EasyMouseConnect\<transfer-id>\<filename>
+Sharing displays the receiving directory. Each transfer has its own generated
+child directory, and existing files are never overwritten.
+
+Approve within 65 seconds. The incoming transfer expires 120 seconds after
+offer creation. Transfers check exact length and SHA-256 and apply Windows
+internet-zone marking before the final save. The sender reports success only
+after receiver confirmation. If that acknowledgment is lost, inspect the
+receiver's transfer directory before retrying. Interrupted transfers do not
+resume automatically. Received files are never opened or executed automatically.
+Direct Explorer-to-Explorer dragging across PCs is not implemented.
+
+DIAGNOSTICS AND REPORTS
+Open Diagnostics for routing state, network checks and input/processing
+counters. A low network RTT is not measured end-to-end input latency.
+
+Local logs: %LOCALAPPDATA%\EasyMouseConnect\logs
+Managed names: emc.log, emc.1.log, emc.2.log
+Limit: 2 MiB each / 6 MiB total.
+
+Logs contain typed operational events and failure categories. They exclude
+raw input/keys, typed text, clipboard/file contents, credentials, file names
+and paths, peer IPs and device names. Input diagnostics are aggregate counts
+and durations rather than an event history.
+
+Diagnostics > Export diagnostic ZIP creates:
+%LOCALAPPDATA%\EasyMouseConnect\diagnostic-exports\emc-diagnostics.zip
+Export is user-controlled and local; nothing uploads automatically. It includes
+sanitized logs and numeric/boolean status, including counters and display
+dimensions, without identity/settings files or local directory metadata.
+Each export REPLACES that ZIP. Copy an older export elsewhere first if needed.
+Use Open export folder to locate it. A rolling .log alone lacks the summary.
+
+After a problem, collect a ZIP from each PC. Sequential collection is valid:
+export A while running, Quit A, switch Bluetooth hardware if needed, export B,
+then Quit B. Mention the sequence. These are separate snapshots; the first
+Quit can cause an expected disconnect on the other PC. Collection transitions
+do not, by themselves, establish the cause of the reported input problem.
+
+Review ZIPs and screenshots before sharing. Include the app/Windows versions,
+minimal steps, failed direction and relevant display/input configuration.
+Never attach pairing codes, identity.dat, clipboard contents or user files.
+Ordinary bugs: https://github.com/bigsk1/easy-mouse-connect/issues
+Security concerns: use the private reporting process in SECURITY.md, or:
+https://github.com/bigsk1/easy-mouse-connect/security/advisories/new
+
+UPDATE AND UNINSTALL
+Quit BOTH tray apps before installing an update, then use the same version
+on both PCs. Keep identity.dat and the existing pairing. Versions 0.2.0 through
+0.3.5 preserve established paired peers and per-user identity/settings data.
+Do not Forget device merely to upgrade.
+
+Uninstall through Windows Settings > Apps > Installed apps > Easy Mouse Connect
+Preview, or its Start menu uninstall entry. Quit the tray app first.
+Uninstall removes the installed app, shortcuts and registration. It preserves
+identities/settings, diagnostics and received files. The portable executable
+has no uninstall entry.
+
+CURRENT LIMITS
+This is an unsigned development preview, with no independent security audit
+or completed hardware acceptance matrix. Trust only PCs you intend to control
+your signed-in desktop. Pairing uses a short-lived code and SPAKE2 before
+Noise identity exchange; transport has no plaintext fallback.
+
+Windows x64 user-session input is the desktop target. UAC, the lock screen,
+secure desktops and elevated application control are outside supported scope.
+The app installs no service, requests no elevation and changes no global cursor
+or Windows security settings. Keep UAC enabled.
+
+Shell/fullscreen surfaces can cover the receiving cursor fallback. Intentional
+app cursor hiding may be overridden by that fallback. Source-pointer hiding,
+exact vertical return-position preservation, clipboard images, automatic
+discovery/NAT traversal and direct Explorer file dragging are not implemented.
+Vendor gestures and remapped/injected macros are not guaranteed. Unsupported
+absolute raw devices release control. Stale input, queue overload or native
+failure disconnects/releases instead of replaying backlog; the local budget
+remains 200 ms. Linux desktop input is not implemented.
+
+See README.md and docs/troubleshooting.md in the source for setup and help;
+docs/development.md describes developer checks. SHA256SUMS.txt identifies
+matching package bytes, not a signed publisher or a reproducible build.
+
+MIT License - Copyright (c) 2026 bigsk1. See LICENSE in the source.

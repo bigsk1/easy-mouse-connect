@@ -1,0 +1,18 @@
+{
+  "name": "easy-mouse-connect",
+  "version": "0.3.5",
+  "private": true,
+  "description": "Encrypted Windows keyboard and mouse sharing",
+  "scripts": {
+    "dev": "cd apps/desktop && tauri dev",
+    "build": "cd apps/desktop && tauri build",
+    "tauri": "tauri",
+    "preview": "node ui/preview.mjs",
+    "check:ui": "node --check ui/app.js",
+    "test:ui": "node tests/ui/run.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10",
+    "playwright": "^1.64.1"
+  }
+}

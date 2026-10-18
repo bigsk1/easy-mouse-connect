@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/emc-protocol", "crates/emc-core", "crates/emc-platform", "apps/desktop"]
+default-members = ["crates/emc-protocol", "crates/emc-core", "crates/emc-platform"]
+
+[workspace.package]
+version = "0.3.5"
+edition = "2021"
+rust-version = "1.99"
+
+[workspace.dependencies]
+anyhow = "1"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs"] }
+emc-protocol = { path = "crates/emc-protocol" }
+emc-platform = { path = "crates/emc-platform" }
+emc-core = { path = "crates/emc-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

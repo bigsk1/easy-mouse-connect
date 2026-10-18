@@ -1,0 +1,93 @@
+name: Verify and package
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    name: Core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Source snapshot privacy safeguards
+        run: python -m unittest discover -s tests -p test_stage_preview.py
+      - name: Install Rust checks
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Formatting
+        run: cargo +stable fmt --all -- --check
+      - name: Portable and platform crate tests
+        run: cargo +stable test --locked -p emc-protocol -p emc-core -p emc-platform
+      - name: Native input API contracts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-native-input.ps1
+      - name: Clippy
+        run: cargo +stable clippy --locked -p emc-protocol -p emc-core -p emc-platform --all-targets -- -D warnings
+
+  windows-desktop:
+    name: Windows desktop and unsigned installer
+    needs: core
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install Rust checks
+        run: rustup toolchain install stable --profile minimal --component clippy
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $hasErrors = $false
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $hasErrors = $true
+              $parseErrors | ForEach-Object { Write-Error $_.Message -ErrorAction Continue }
+            }
+          }
+          if ($hasErrors) { throw 'PowerShell parse errors.' }
+      - name: Install Tauri CLI from lockfile
+        run: npm ci
+      - name: Check vanilla JavaScript
+        run: npm run check:ui
+      - name: Install UI test browser
+        run: npx playwright install chromium
+      - name: Browser preview and synthetic bridge checks
+        run: npm run test:ui
+      - name: Check desktop
+        run: cargo +stable clippy --locked --manifest-path apps/desktop/Cargo.toml --all-targets -- -D warnings
+      - name: Build unsigned NSIS package
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -SkipChecks
+      - name: Save development installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: easy-mouse-connect-windows-x64-unsigned-${{ github.sha }}
+          path: target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+

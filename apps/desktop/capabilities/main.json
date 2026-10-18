@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Only the bundled local main window can control the engine; no shell, HTTP, filesystem or remote-page grants.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:allow-listen", "core:event:allow-unlisten",
+    "allow-get-status", "allow-get-diagnostic-status", "allow-update-settings", "allow-create-invitation", "allow-copy-invitation",
+    "allow-pair-device", "allow-forget-peer", "allow-reconnect", "allow-emergency-stop",
+    "allow-send-file", "allow-respond-file", "allow-diagnostics",
+    "allow-export-diagnostics", "allow-open-log-folder", "allow-open-export-folder"
+  ]
+}
