@@ -46,6 +46,8 @@ The current preview has limited two-PC mouse/keyboard/scrolling and basic Send f
 
 ## Source and package hygiene
 
+Dependabot is configured for security-update PRs only. Repository vulnerability alerts and automated security fixes stay enabled; scheduled version-update PRs have an open limit of zero. Routine major upgrades are deliberate maintenance changes, with upstream migration guidance and relevant compatibility tests. Security fixes still require review and passing checks; the bot does not automatically merge them.
+
 Use `scripts/stage-preview.py` as described in [packaging](../packaging/README.md) to create an allowlisted source ZIP and package manifest in a new destination. Review the archive before publication. Never commit runtime identities, invitations, diagnostics, user files, environment/signing keys or local tooling configuration. The ignored `local-notes/` directory is for local working records and is excluded from source exports; public documentation must not depend on it.
 
 User-facing documentation describes current behavior. Keep private test chronology and machine-specific investigation notes out of the public tree. Use Git commits and narrowly scoped release notes to explain product changes. Changes to protocol/persistence need compatibility and recovery tests before shipping; never replace trust or delete an identity to hide an upgrade failure.
