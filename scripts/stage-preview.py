@@ -26,7 +26,7 @@ for name in files:
 
 # Explicit source roots keep local configuration, build tools and runtime data out.
 source_roots = ["crates", "apps", "ui", "docs", "scripts", "tests", "packaging", ".github"]
-source_files = ["Cargo.toml", "Cargo.lock", "package.json", "package-lock.json", "rustfmt.toml", "README.md", "AGENTS.md", "SECURITY.md", "CONTRIBUTING.md", ".gitignore", "LICENSE", "LICENSE.txt", "NOTICE", "NOTICE.txt"]
+source_files = ["Cargo.toml", "Cargo.lock", "package.json", "package-lock.json", "rustfmt.toml", "README.md", "AGENTS.md", "SECURITY.md", "CONTRIBUTING.md", ".gitignore", "LICENSE", "LICENSE.txt", "NOTICE", "NOTICE.txt", "CHANGELOG.md"]
 paths = [root / name for name in source_files]
 for folder in source_roots:
     paths.extend((root / folder).rglob("*"))

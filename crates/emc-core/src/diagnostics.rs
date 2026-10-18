@@ -890,7 +890,7 @@ mod tests {
         let mut all = String::new();
         for n in 0..archive.len() {
             let mut entry = archive.by_index(n).unwrap();
-            assert!(!entry.name().contains("identity"));
+            assert!(!entry.name().unwrap().contains("identity"));
             entry.read_to_string(&mut all).unwrap();
         }
         assert!(!all.contains("SECRET"));

@@ -22,6 +22,7 @@ class StagePreviewTests(unittest.TestCase):
         shutil.copyfile(Path(__file__).resolve().parents[1] / "scripts/stage-preview.py", self.script)
         self.write("apps/desktop/tauri.conf.json", json.dumps({"version": "0.3.5"}))
         self.write("README.md", "Synthetic source fixture.\n")
+        self.write("CHANGELOG.md", "Synthetic release notes.\n")
         self.write("ui/app.js", "// Synthetic UI fixture.\n")
         self.package.mkdir()
         self.package_files = {
@@ -72,7 +73,7 @@ class StagePreviewTests(unittest.TestCase):
             self.assertIsNone(archive.testzip())
             names = set(archive.namelist())
             self.assertTrue({"Easy-Mouse-Connect/" + name for name in optional_notices} <= names)
-            for name in ["README.md", "ui/app.js", "docs/public.md", "apps/desktop/tauri.conf.json"]:
+            for name in ["README.md", "CHANGELOG.md", "ui/app.js", "docs/public.md", "apps/desktop/tauri.conf.json"]:
                 self.assertEqual(archive.read("Easy-Mouse-Connect/" + name), (self.root / name).read_bytes())
             for name in private_paths:
                 self.assertNotIn("Easy-Mouse-Connect/" + name, names)

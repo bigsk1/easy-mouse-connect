@@ -41,4 +41,6 @@ Only an explicit **Export diagnostic ZIP** action creates `%LOCALAPPDATA%\EasyMo
 
 ## Release review
 
+The cross-platform lockfile retains `glib` 0.18.5 through Tauri's Linux GTK dependencies, matching [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html). It is absent from the Windows target dependency graph. The GTK 0.18 dependency family does not accept the patched `glib` 0.20 release, so Dependabot cannot resolve this update independently; adding another direct version would not replace the affected dependency. Linux desktop distribution is unsupported; resolve the affected Linux dependency graph before introducing a Linux desktop release. Keep that platform-specific alert visible rather than treating a Windows-only release as a clean audit of every target in the lockfile.
+
 Changes to authentication, parsing, transfer policy, revocation or native ownership need focused regression coverage and the relevant [manual checks](docs/manual-testing.md). Keep encrypted authentication on every channel, bounded queues/frames and current policy checks at installation and commit. Review dependency advisories/licenses, installer provenance/signing and persistence/protocol compatibility before a binary release. Do not describe a preview as audited or production-ready without evidence.

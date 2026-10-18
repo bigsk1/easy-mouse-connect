@@ -42,11 +42,13 @@ Keep one behavior change per patch. Add meaningful regression coverage for proto
 
 Use the [Windows acceptance matrix](manual-testing.md) for physical testing. At minimum, an input change needs both crossing directions, keyboard/modifier release, scrolling, idle return, local reclaim and Ctrl+Alt+Escape, plus the affected display/application case. File changes need consent, bounds, interruption, integrity, safe destinations and concurrent input. Report platform/build, mouse connection, relevant display/network configuration, exact revision and which cases actually ran.
 
-The current preview has limited two-PC mouse/keyboard/scrolling and basic Send file confirmation. Those observations do not establish every mouse, shell surface, display/DPI layout, network recovery path or transfer-policy case. Network RTT does not measure end-to-end input latency. Keep untested cases explicit; no automated suite substitutes for hardware acceptance or an independent security audit.
+Preview 0.3.5 has limited two-PC mouse/keyboard/scrolling and basic Send file confirmation. The 0.3.6 maintenance preview still needs physical acceptance. Those observations do not establish every mouse, shell surface, display/DPI layout, network recovery path or transfer-policy case. Network RTT does not measure end-to-end input latency. Keep untested cases explicit; no automated suite substitutes for hardware acceptance or an independent security audit.
 
 ## Source and package hygiene
 
 Dependabot is configured for security-update PRs only. Repository vulnerability alerts and automated security fixes stay enabled; scheduled version-update PRs have an open limit of zero. Routine major upgrades are deliberate maintenance changes, with upstream migration guidance and relevant compatibility tests. Security fixes still require review and passing checks; the bot does not automatically merge them.
+
+The repository's active `main` ruleset requires a reviewed pull request, resolved review conversations and the Ubuntu core, Windows core and Windows desktop/installer checks. It blocks force pushes and branch deletion. Repository administrators have an explicit bypass; other collaborators follow the rules. Keep required check names synchronized if the workflow jobs are renamed. Workflows from external contributors require maintainer approval, and workflow tokens retain read-only default permissions.
 
 Use `scripts/stage-preview.py` as described in [packaging](../packaging/README.md) to create an allowlisted source ZIP and package manifest in a new destination. Review the archive before publication. Never commit runtime identities, invitations, diagnostics, user files, environment/signing keys or local tooling configuration. The ignored `local-notes/` directory is for local working records and is excluded from source exports; public documentation must not depend on it.
 

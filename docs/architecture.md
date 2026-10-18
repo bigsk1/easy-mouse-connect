@@ -37,7 +37,7 @@ RustCrypto SPAKE2 0.4 uses the code as its password on channel 3. Transcript-bou
 
 Subsequent control and bulk connections each authenticate pinned identities with `Noise_IK_25519_ChaChaPoly_BLAKE2s`. Addresses locate peers; they do not identify them. A changed key needs a new pairing decision. Records are bounded before decoding, and there is no plaintext fallback.
 
-Versions 0.2.0 through 0.3.5 preserve version-1 DPAPI identity/settings storage and established IK peers. Upgrading does not require deleting identities or forgetting a trusted peer. New pairing requires compatible short-code receivers. Rust retains an explicit outbound legacy `emc1` import branch, but generates no legacy tokens, rejects incoming channel-0 pairing and never falls back after short-code failure.
+Versions 0.2.0 through 0.3.6 preserve version-1 DPAPI identity/settings storage and established IK peers. Upgrading does not require deleting identities or forgetting a trusted peer. New pairing requires compatible short-code receivers. Rust retains an explicit outbound legacy `emc1` import branch, but generates no legacy tokens, rejects incoming channel-0 pairing and never falls back after short-code failure.
 
 Connections use TCP port 24859 with `TCP_NODELAY` over an existing route. There is no application relay, rendezvous server, subnet scan, UPnP or cloud account. The code-entering PC retains the dialing role, including manual reconnect and automatic attempts every three seconds; the other PC listens. See [protocol](protocol.md) for framing and authentication and [networking](networking.md) for route/firewall requirements.
 

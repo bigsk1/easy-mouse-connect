@@ -2,7 +2,7 @@
 
 Use this checklist to test a build on your own pair of Windows PCs or to verify a change before release. Record the build and environment, then exercise the features and recovery paths relevant to your setup. Advanced fault-injection cases belong in an isolated development fixture, not an installed paired session.
 
-**Current preview status:** 0.3.5 has limited two-PC confirmation for mouse crossing, keyboard input, scrolling, Start-menu cursor visibility and basic app-based **Send file** transfer. The full acceptance matrix remains incomplete. Clipboard sharing, file limits and failure policies, emergency/local release, and the wider hardware/network cases still need explicit results.
+**Current preview status:** 0.3.5 has limited two-PC confirmation for mouse crossing, keyboard input, scrolling, Start-menu cursor visibility and basic app-based **Send file** transfer. Version 0.3.6 updates diagnostic ZIP dependencies without changing input-routing logic; it still needs physical acceptance as a new build. The full acceptance matrix remains incomplete. Clipboard sharing, file limits and failure policies, emergency/local release, and the wider hardware/network cases still need explicit results.
 
 Portable tests, browser fixtures and compilation complement these physical checks. Record each case actually exercised; a passed result on one setup or revision does not pass a different setup or later implementation. See [development and verification](development.md) for repeatable checks and [architecture](architecture.md) for the current input and session contracts.
 

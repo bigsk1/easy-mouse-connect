@@ -2,7 +2,7 @@
 
 Share a mouse and keyboard between two Windows PCs over an authenticated, encrypted connection. Easy Mouse Connect uses Rust for networking and native input, with Tauri 2 and a small HTML/CSS/JavaScript settings interface.
 
-**Current version: 0.3.5 — Windows x64 preview.** This is development software; the full hardware acceptance matrix and an independent security audit are incomplete. Pair only PCs you trust: input sharing grants the other PC control of your signed-in desktop. See [SECURITY.md](SECURITY.md) for the security model and reporting process.
+**Current version: 0.3.6 — Windows x64 preview.** See the [changelog](CHANGELOG.md) for updates. This is development software; the full hardware acceptance matrix and an independent security audit are incomplete. Pair only PCs you trust: input sharing grants the other PC control of your signed-in desktop. See [SECURITY.md](SECURITY.md) for the security model and reporting process.
 
 ![Easy Mouse Connect settings interface](docs/images/desktop-preview.png)
 
@@ -48,7 +48,7 @@ Transfers use length and SHA-256 checks and Windows internet-zone marking before
 
 ## Update or uninstall
 
-Quit both tray apps before installing an update, then use the same version on both PCs. Keep `%LOCALAPPDATA%\EasyMouseConnect\identity.dat`: versions 0.2.0 through 0.3.5 preserve existing identities/settings and established paired peers. **Do not forget a working peer just to upgrade.** Update both PCs before creating a new pairing.
+Quit both tray apps before installing an update, then use the same version on both PCs. Keep `%LOCALAPPDATA%\EasyMouseConnect\identity.dat`: versions 0.2.0 through 0.3.6 preserve existing identities/settings and established paired peers. **Do not forget a working peer just to upgrade.** Update both PCs before creating a new pairing.
 
 Uninstall through **Windows Settings → Apps → Installed apps**, using **Easy Mouse Connect** or **Easy Mouse Connect Preview** for the small preview installer. Its Start menu also has an uninstall entry. Quit the tray app first. Uninstall removes the installed app, shortcuts and registration while preserving identities/settings, diagnostics and received files. The portable executable creates no uninstall entry.
 
