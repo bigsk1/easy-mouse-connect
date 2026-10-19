@@ -23,7 +23,9 @@ class PreviewReleaseTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.base = Path(self.temporary.name)
+        # Windows TEMP may use an 8.3 alias; compare canonical fixture paths
+        # consistently with the publisher's validated, resolved asset paths.
+        self.base = Path(self.temporary.name).resolve()
         self.root = self.base / "source"
         self.root.mkdir()
         self.package = self.base / "package"
