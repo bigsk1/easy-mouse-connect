@@ -108,15 +108,10 @@ jobs:
         shell: pwsh
         run: |
           $nsisCache = Join-Path $env:LOCALAPPDATA 'tauri\NSIS'
-          $cachedCompilers = @()
-          if (Test-Path -LiteralPath $nsisCache -PathType Container) {
-            $cachedCompilers = @(Get-ChildItem -LiteralPath $nsisCache -Filter makensis.exe -File -Recurse)
-          }
-          if ($cachedCompilers.Count -eq 1) {
-            $compiler = $cachedCompilers[0].FullName
-          } elseif ($cachedCompilers.Count -gt 1) {
-            throw 'Multiple cached NSIS compilers found; select the intended compiler explicitly.'
-          } else {
+          # Tauri invokes this root launcher. Its toolchain also contains a
+          # Bin/makensis.exe payload, so recursive uniqueness is not valid.
+          $compiler = Join-Path $nsisCache 'makensis.exe'
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
             $availableCompiler = Get-Command makensis.exe -CommandType Application -ErrorAction SilentlyContinue
             if ($null -eq $availableCompiler) {
               throw 'NSIS compiler not found in the Tauri cache or PATH after the Tauri build.'
