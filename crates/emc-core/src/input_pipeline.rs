@@ -193,6 +193,29 @@ pub(crate) struct OrderedQueue<T> {
     direction: Direction,
     counters: Arc<Counters>,
 }
+impl OrderedQueue<Message> {
+    /// An optional activity lease must not compete with a busy input stream.
+    /// It is still an ordered control barrier, but can be omitted without
+    /// dropping input, reporting an input overflow, or extending an old lease.
+    pub(crate) fn push_activity(&self, queued_at: Instant) {
+        let mut state = self.state.lock().unwrap();
+        if !matches!(self.direction, Direction::Outgoing)
+            || state.closed
+            || state.items.len() >= CAPACITY / 2
+        {
+            return;
+        }
+        state.items.push_back(Timed {
+            value: Message::PeerActivity,
+            queued_at,
+        });
+        self.counters
+            .outgoing_queue_peak
+            .fetch_max(state.items.len() as u64, Ordering::Relaxed);
+        drop(state);
+        self.changed.notify_one();
+    }
+}
 impl<T: Motion> OrderedQueue<T> {
     pub(crate) fn new(direction: Direction, counters: Arc<Counters>) -> Arc<Self> {
         Arc::new(Self {
@@ -278,6 +301,36 @@ impl<T: Motion> OrderedQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn optional_peer_activity_keeps_input_headroom_and_original_time() {
+        let counters = Arc::new(Counters::default());
+        let queue = OrderedQueue::new(Direction::Outgoing, counters.clone());
+        let received_at = Instant::now() - Duration::from_millis(10);
+        queue.push_activity(received_at);
+        let message = queue.recv().await.unwrap();
+        assert!(matches!(message.value, Message::PeerActivity));
+        assert_eq!(message.queued_at, received_at);
+        for index in 0..CAPACITY / 2 {
+            queue
+                .push(Message::Ping(index as u64), Instant::now())
+                .unwrap();
+        }
+        queue.push_activity(Instant::now());
+        assert_eq!(queue.state.lock().unwrap().items.len(), CAPACITY / 2);
+        assert_eq!(counters.input_queue_overflows.load(Ordering::Relaxed), 0);
+        queue
+            .push(Message::Input(InputEvent::ReleaseAll), Instant::now())
+            .unwrap();
+        assert_eq!(queue.state.lock().unwrap().items.len(), CAPACITY / 2 + 1);
+        queue.close();
+        queue.push_activity(Instant::now());
+        assert!(queue.recv().await.is_none());
+        let receiver = OrderedQueue::new(Direction::Incoming, counters);
+        receiver.push_activity(Instant::now());
+        assert!(receiver.state.lock().unwrap().items.is_empty());
+    }
+
     #[tokio::test]
     async fn coalescing_preserves_sums_timestamps_and_all_action_barriers() {
         let counters = Arc::new(Counters::default());

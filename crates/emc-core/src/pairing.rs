@@ -23,8 +23,8 @@ pub(crate) const LIFETIME: Duration = Duration::from_secs(300);
 const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const MESSAGE_LENGTH: usize = 33;
 const DOMAIN: &[u8] = b"EasyMouseConnect/Pairing/v2/SPAKE2-Ed25519/HKDF-SHA256";
-const ID_A: &[u8] = b"EasyMouseConnect/EMC01/channel3/pairing-v2/initiator";
-const ID_B: &[u8] = b"EasyMouseConnect/EMC01/channel3/pairing-v2/responder";
+const ID_A: &[u8] = b"EasyMouseConnect/EMC02/channel3/pairing-v2/initiator";
+const ID_B: &[u8] = b"EasyMouseConnect/EMC02/channel3/pairing-v2/responder";
 const PSK_INFO: &[u8] = b"EasyMouseConnect/Pairing/v2/Noise-XXpsk3/PSK";
 
 #[derive(Clone)]
@@ -184,7 +184,7 @@ pub(crate) async fn exchange(
 #[cfg(test)]
 mod tests {
     use super::*;
-    const HEADER: &[u8] = b"EMC01\x03";
+    const HEADER: &[u8] = b"EMC02\x03";
 
     #[test]
     fn code_roundtrip_is_twelve_unbiased_base32_characters() {
@@ -239,7 +239,7 @@ mod tests {
         assert_ne!(*a.psk, *next.psk);
         let (a, b) = exchange_keys("ABCD-EFGH-JKMP", "ABCD-EFGH-JKMQ", HEADER);
         assert_ne!(*a.psk, *b.psk);
-        let (a, b) = exchange_keys("ABCD-EFGH-JKMP", "ABCD-EFGH-JKMP", b"EMC01\x02");
+        let (a, b) = exchange_keys("ABCD-EFGH-JKMP", "ABCD-EFGH-JKMP", b"EMC02\x02");
         assert_ne!(*a.psk, *b.psk);
     }
 

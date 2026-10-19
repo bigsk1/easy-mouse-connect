@@ -202,7 +202,7 @@ class PreviewReleaseTests(unittest.TestCase):
 
     def test_private_material_and_ignored_file_are_never_uploaded(self):
         for name in ["docs/local-notes/private.md", "docs/.env", "docs/identity.dat",
-                     "docs/credentials.pem", "docs/logs/private.txt"]:
+                     "docs/credentials.pem", "docs/logs/private.txt", "docs/clipboard-images/private.png"]:
             self.write(name, "PRIVATE-TEST-CANARY")
         self.stage()
         self.run_publisher()

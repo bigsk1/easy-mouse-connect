@@ -16,6 +16,8 @@ fn main() {
             "export_diagnostics",
             "open_log_folder",
             "open_export_folder",
+            "open_project_url",
+            "add_peer_firewall_rule",
         ]),
     ))
     .expect("Unable to build desktop capabilities");

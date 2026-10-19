@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title description">
+  <title id="title">Easy Mouse Connect</title>
+  <desc id="description">Encrypted mouse and keyboard sharing between two Windows PCs. Clipboard and file sharing over a reachable LAN or Tailscale connection.</desc>
+  <defs>
+    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.8" fill="#91b199" opacity="0.17"/>
+    </pattern>
+    <linearGradient id="screen" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#22392b"/>
+      <stop offset="1" stop-color="#435f3c"/>
+    </linearGradient>
+    <linearGradient id="link" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#78b886"/>
+      <stop offset="1" stop-color="#c7f4c4"/>
+    </linearGradient>
+    <clipPath id="art-region">
+      <rect x="622" y="140" width="594" height="368" rx="10"/>
+    </clipPath>
+    <clipPath id="desktop-screen">
+      <rect x="929" y="199" width="264" height="156" rx="4"/>
+    </clipPath>
+    <filter id="cursor-shadow" x="-60%" y="-50%" width="220%" height="240%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#07110c" flood-opacity="0.55"/>
+    </filter>
+    <symbol id="brand" viewBox="0 0 32 32">
+      <path d="M5 9a4 4 0 0 1 4-4h10v10H5V9Zm22 14a4 4 0 0 1-4 4H13V17h14v6Z" fill="currentColor"/>
+      <path d="M22 5h5v9M5 18v9h5" fill="none" stroke="currentColor" stroke-width="2"/>
+    </symbol>
+    <symbol id="lock" viewBox="0 0 24 24">
+      <rect x="5" y="10" width="14" height="11" rx="2"/>
+      <path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3"/>
+    </symbol>
+    <style>
+      text { font-family: "Segoe UI", "Ubuntu Sans", sans-serif; }
+      .micro { font-size: 12px; font-weight: 600; letter-spacing: 2.3px; }
+      .mono { font-family: "Cascadia Code", "Ubuntu Mono", monospace; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="640" fill="#141a17"/>
+  <path d="M64 122h1152M64 550h1152" stroke="#344238"/>
+
+  <!-- The same two-screen mark used by the settings interface. -->
+  <use href="#brand" x="57" y="54" width="53" height="53" color="#b5edb4"/>
+  <text x="125" y="78" fill="#e8ede9" font-size="21" font-weight="600" letter-spacing="-0.4">easy mouse</text>
+  <text x="126" y="99" fill="#9daf9f" font-size="10" font-weight="600" letter-spacing="4.3">CONNECT</text>
+  <text x="1216" y="88" text-anchor="end" class="micro" fill="#a7baac">ONE DESK. TWO DEVICES.</text>
+
+  <text x="60" y="247" fill="#eef3ed" font-size="79" font-weight="650" letter-spacing="-3.5">Easy Mouse</text>
+  <text x="60" y="331" fill="#b5edb4" font-size="86" font-weight="650" letter-spacing="-3.5">Connect</text>
+  <text x="65" y="390" fill="#c0cdc3" font-size="25" letter-spacing="-0.3">One mouse. One keyboard.</text>
+  <text x="65" y="427" fill="#c0cdc3" font-size="25" letter-spacing="-0.3">Two Windows PCs.</text>
+
+  <g transform="translate(65 480)" fill="#c3d3c6" font-size="15">
+    <text y="0">LAN + Tailscale</text>
+    <circle cx="124" cy="-5" r="2" fill="#6d8e74"/>
+    <text x="140" y="0">Clipboard</text>
+    <circle cx="226" cy="-5" r="2" fill="#6d8e74"/>
+    <text x="242" y="0">File transfer</text>
+  </g>
+
+  <!-- A stylized pair of PCs, using the interface's device-arrangement palette. -->
+  <g clip-path="url(#art-region)">
+    <rect x="622" y="140" width="594" height="368" fill="url(#dots)"/>
+    <circle cx="1034" cy="310" r="207" fill="none" stroke="#2d4134" opacity="0.65"/>
+    <circle cx="1034" cy="310" r="157" fill="none" stroke="#2d4134" opacity="0.4"/>
+  </g>
+
+  <!-- Desktop PC. -->
+  <rect x="920" y="190" width="282" height="185" rx="10" fill="#28352d" stroke="#839b88" stroke-width="1.5"/>
+  <rect x="929" y="199" width="264" height="156" rx="4" fill="url(#screen)"/>
+  <g clip-path="url(#desktop-screen)">
+    <path d="m1089 179 133 0-112 196H977Z" fill="#729864" opacity="0.12"/>
+    <path d="m1169 192 52 0-112 196h-52Z" fill="#0d2018" opacity="0.3"/>
+  </g>
+  <path d="M1046 375v31m30-31v31" stroke="#657b6b" stroke-width="2"/>
+  <rect x="1047" y="376" width="28" height="28" fill="#26382b"/>
+  <path d="M1013 407h96" stroke="#839b88" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="1061" cy="365" r="2" fill="#b5edb4"/>
+
+  <!-- Quiet desktop windows are illustration, not a claimed live app session. -->
+  <rect x="949" y="219" width="123" height="92" rx="5" fill="#1a2a20" stroke="#608267"/>
+  <path d="M950 240h121" stroke="#3d5a44"/>
+  <circle cx="959" cy="230" r="2" fill="#a7c4a9"/>
+  <path d="M968 230h35" stroke="#718f76" stroke-width="2" stroke-linecap="round"/>
+  <rect x="962" y="253" width="34" height="23" rx="2" fill="#3b5740" stroke="#739b78"/>
+  <rect x="1019" y="253" width="34" height="23" rx="2" fill="#3b5740" stroke="#739b78"/>
+  <path d="M996 265h23m-51 24h27m28 0h26" stroke="#90b28f" stroke-width="2" stroke-linecap="round"/>
+  <rect x="1092" y="301" width="84" height="36" rx="5" fill="#263d2b" stroke="#608267"/>
+  <path d="M1105 314h28m-28 11h49" stroke="#94b394" stroke-width="2" stroke-linecap="round"/>
+  <text x="1061" y="440" text-anchor="middle" class="mono" fill="#8fa997" font-size="12" letter-spacing="2">PC 02</text>
+
+  <!-- Laptop PC. -->
+  <path d="M665 309a9 9 0 0 1 9-9h208a9 9 0 0 1 9 9v137H665Z" fill="#28352d" stroke="#7f9985" stroke-width="1.5"/>
+  <rect x="673" y="308" width="210" height="128" rx="3" fill="#18261c"/>
+  <path d="M713 308v128" stroke="#3b5241"/>
+  <use href="#brand" x="682" y="318" width="22" height="22" color="#b5edb4"/>
+  <rect x="680" y="351" width="26" height="9" rx="2" fill="#45644b"/>
+  <path d="M685 372h17m-17 17h17m-17 17h17" stroke="#627f6a" stroke-width="3" stroke-linecap="round"/>
+  <path d="M727 325h85m-85 11h47" stroke="#b0c3b1" stroke-width="3" stroke-linecap="round"/>
+  <rect x="725" y="353" width="145" height="45" rx="4" fill="#273c2b" stroke="#4b6850"/>
+  <path d="M739 362h37v22h-37Zm60 0h37v22h-37Zm-23 11h23" fill="none" stroke="#9dbf9a" stroke-width="1.5"/>
+  <path d="M735 414h68" stroke="#7e9e83" stroke-width="3" stroke-linecap="round"/>
+  <rect x="845" y="409" width="18" height="10" rx="5" fill="#8abf89"/>
+  <circle cx="858" cy="414" r="3" fill="#203b29"/>
+  <path d="M665 446h226l18 10c2 1 1 4-2 4H649c-3 0-4-3-2-4Z" fill="#34463a" stroke="#7f9985" stroke-width="1.5"/>
+  <path d="M756 447h45l-3 5h-39Z" fill="#1d2c23"/>
+  <text x="778" y="490" text-anchor="middle" class="mono" fill="#8fa997" font-size="12" letter-spacing="2">PC 01</text>
+
+  <!-- One continuous connection, with encryption at the handoff. -->
+  <path d="M841 375C924 375 872 272 968 272h45" fill="none" stroke="#101e15" stroke-width="11"/>
+  <path d="M841 375C924 375 872 272 968 272h45" fill="none" stroke="url(#link)" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 8"/>
+  <circle cx="901" cy="317" r="25" fill="#b5edb4" stroke="#141a17" stroke-width="6"/>
+  <use href="#lock" x="890" y="305" width="22" height="22" fill="none" stroke="#233d2b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(1015 255) rotate(-13)" filter="url(#cursor-shadow)">
+    <path d="M0 0v43l11-10 10 19 10-5-10-18 15-2Z" fill="#d9fbd5" stroke="#203b27" stroke-width="2" stroke-linejoin="round"/>
+  </g>
+
+  <text x="65" y="594" fill="#b0c0b5" font-size="17" letter-spacing="0.1">bigsk1 / easy-mouse-connect</text>
+  <use href="#lock" x="980" y="575" width="20" height="20" fill="none" stroke="#b5edb4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1011" y="591" fill="#b5edb4" font-size="17" font-weight="500">Encrypted by default</text>
+</svg>

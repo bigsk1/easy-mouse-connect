@@ -1,6 +1,6 @@
 # Connecting two PCs
 
-Easy Mouse Connect opens TCP port **24859** and connects to the IP address entered in the app. Both PCs run the app; the peer must be reachable and permitted by host firewall and network policy. The port carries separate authenticated input/control and bulk connections.
+Easy Mouse Connect opens TCP port **24859** and connects to the IP address entered in the app. Both PCs run the app; the peer must be reachable and permitted by host firewall and network policy. The port carries separate authenticated input/control and bulk connections. Use the same application build on both PCs: 0.4.0 and 0.4.1 share `EMC02` and do not interoperate with 0.3.7. Use the same 0.4.1 build on both PCs for its clipboard fixes. Updating retains their paired identities.
 
 ## LANs and routed subnets
 
@@ -34,7 +34,11 @@ Application encryption remains enabled inside the Tailscale tunnel. Tailnet memb
 
 ## Windows Firewall
 
-The application does not create firewall exceptions. If a rule is needed, run the explicit helper from an **Administrator PowerShell** terminal. Supply the installed executable's full path and exactly one authorized peer IP:
+The application creates no firewall exceptions automatically. In **Troubleshooting → Windows Firewall**, enter the other PC's literal IP address and select **Add a firewall rule**. The saved peer endpoint is prefilled when available; an endpoint port is stripped when selecting the remote IP. Windows asks for administrator approval for a separate fixed PowerShell helper, while Easy Mouse Connect continues running without elevation. Approval permits an inbound rule for the running executable, exactly one peer IP, TCP **24859** and **Domain/Private** profiles. It does not allow Public-profile access, a subnet, a wildcard peer or an arbitrary frontend command. Cancelling Windows approval leaves the rule unchanged.
+
+Use this on each PC that needs to receive an inbound connection. Firewall setup is available before pairing and when the input engine cannot start. An existing rule for another executable path or peer IP does not establish coverage for the current endpoint. The action cannot create missing LAN/VPN routes or override organization policy.
+
+For a reviewed script-based setup, run the explicit helper from an **Administrator PowerShell** terminal. Supply the installed executable's full path and exactly one authorized peer IP:
 
 ```powershell
 .\scripts\allow-peer-firewall.ps1 `
@@ -59,7 +63,8 @@ Changing the executable path or peer IP can require replacing the rule. The curr
 
 | Symptom | Next check |
 | --- | --- |
-| TCP check fails | App open on receiver, correct IP/port, route, network profile and scoped firewall rule |
+| TCP check fails | App open on receiver, correct IP/port, route, network profile and scoped firewall rule; use the Troubleshooting action if a rule is missing |
+| One PC is 0.3.7 and the other is 0.4.0/0.4.1 | Update both to the same build; preserve identities and existing pairing |
 | TCP works but pairing fails | Fresh 12-character code from the destination PC, correct address, five-minute expiry and remaining attempt budget |
 | Trusted reconnect fails | Both sides still trust the same identities; restore the correct profile or revoke/re-pair deliberately |
 | Works locally, fails over Tailscale | Tailnet policy, peer online state, tailnet destination address and Windows profile |

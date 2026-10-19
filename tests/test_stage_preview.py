@@ -53,6 +53,7 @@ class StagePreviewTests(unittest.TestCase):
             "ui/node_modules/private.txt", "apps/desktop/gen/private.json",
             "docs/runtime/profile.json", "tests/received/private.txt",
             "docs/logs/summary.json", "docs/diagnostic-exports/archive.zip",
+            "docs/clipboard-images/private.png", "tests/CLIPBOARD-IMAGES/private.png",
             "docs/.env", "scripts/.env.local", "docs/IDENTITY.DAT",
             "tests/identity.dat.backup", "docs/emc-diagnostics.zip",
             "docs/EMC-DIAGNOSTICS-old.ZIP", "packaging/signing.PFX",

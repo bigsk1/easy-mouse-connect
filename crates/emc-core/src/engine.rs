@@ -10,10 +10,11 @@ use crate::{
     transport::{self, Channel},
 };
 use anyhow::{bail, ensure, Context, Result};
+use emc_platform::clipboard_image::{ClipboardImage, PreparedImage};
 use emc_platform::{CapturedInput, InputController};
 use emc_protocol::{
     validate_filename, validate_id, BulkKind, InputEvent, Message, CHUNK_BYTES,
-    MAX_CLIPBOARD_BYTES, MAX_FILE_BYTES, PORT,
+    MAX_CLIPBOARD_BYTES, MAX_CLIPBOARD_IMAGE_BYTES, MAX_FILE_BYTES, PORT,
 };
 use rand::{rngs::OsRng, RngCore};
 use serde::Serialize;
@@ -36,6 +37,10 @@ use tokio::{
     time::{interval, timeout},
 };
 use zeroize::Zeroizing;
+
+#[path = "engine_preferences.rs"]
+mod preferences;
+pub use preferences::{ClipboardNotice, NotificationSnapshot};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FileOffer {
@@ -79,6 +84,14 @@ struct Runtime {
     generation: u64,
     bulk_generation: u64,
     clipboard_revision: u64,
+    clipboard_content_revision: u64,
+    awake_revision: u64,
+    peer_activity: Option<(u64, u64, Instant)>,
+    clipboard_notice_serial: u64,
+    notification_revision: u64,
+    clipboard_notice: Option<ClipboardNotice>,
+    clipboard_notice_at: Option<Instant>,
+    clipboard_notice_generation: Option<u64>,
     control: Option<Arc<OrderedQueue<Message>>>,
     control_stop: Option<watch::Sender<bool>>,
     bulk: Option<mpsc::Sender<Message>>,
@@ -89,6 +102,7 @@ struct Runtime {
     pending: Vec<FileOffer>,
     decisions: HashMap<String, oneshot::Sender<bool>>,
     suppress_clipboard: Option<[u8; 32]>,
+    suppress_clipboard_image: Option<[u8; 32]>,
 }
 struct Inner {
     state: Mutex<Runtime>,
@@ -109,6 +123,10 @@ struct Inner {
     bulk_retirement_waiting: Notify,
     #[cfg(test)]
     input_sink: Mutex<Option<TestInputSink>>,
+    #[cfg(test)]
+    image_sink: Mutex<Option<TestImageSink>>,
+    #[cfg(test)]
+    text_sink: Mutex<Option<TestTextSink>>,
     incoming: AsyncMutex<Option<Incoming>>,
     outgoing: AsyncMutex<()>,
     pairing: AsyncMutex<()>,
@@ -128,6 +146,10 @@ type TestInputSink = Arc<
         + Send
         + Sync,
 >;
+#[cfg(test)]
+type TestImageSink = Arc<dyn Fn(&PreparedImage) -> Result<()> + Send + Sync>;
+#[cfg(test)]
+type TestTextSink = Arc<dyn Fn(&str) -> Result<()> + Send + Sync>;
 #[derive(Debug, Clone, Copy)]
 enum EstablishedChannel {
     Control,
@@ -159,27 +181,52 @@ struct BulkSession {
     tx: mpsc::Sender<Message>,
     generation: u64,
     bulk_generation: u64,
-    clipboard_revision: Option<u64>,
+    clipboard_revision: Option<(u64, u64, BulkKind)>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ClipboardContext {
     generation: u64,
     bulk_generation: u64,
     revision: u64,
+    content_revision: u64,
+    kind: BulkKind,
+}
+impl ClipboardContext {
+    fn same_activation(self, other: Self) -> bool {
+        self.generation == other.generation
+            && self.bulk_generation == other.bulk_generation
+            && self.revision == other.revision
+            && self.kind == other.kind
+    }
 }
 type ClipboardBaseline = Option<(ClipboardContext, [u8; 32])>;
+type ImageBaseline = Option<(ClipboardContext, u32, Option<[u8; 32]>)>;
+struct ClipboardImageSample {
+    sequence: u32,
+    current_sequence: u32,
+    image: Option<ClipboardImage>,
+}
 
 impl Runtime {
     fn clipboard_context(&self) -> Option<ClipboardContext> {
+        self.clipboard_context_for(BulkKind::Text)
+    }
+    fn clipboard_context_for(&self, kind: BulkKind) -> Option<ClipboardContext> {
         (self.connected
             && self.bulk.is_some()
             && self.config.settings.enabled
-            && self.config.settings.share_clipboard)
-            .then_some(ClipboardContext {
-                generation: self.generation,
-                bulk_generation: self.bulk_generation,
-                revision: self.clipboard_revision,
+            && match kind {
+                BulkKind::Text => self.config.settings.share_clipboard,
+                BulkKind::Image => self.config.settings.share_clipboard_images,
+                BulkKind::File => false,
             })
+        .then_some(ClipboardContext {
+            generation: self.generation,
+            bulk_generation: self.bulk_generation,
+            revision: self.clipboard_revision,
+            content_revision: self.clipboard_content_revision,
+            kind,
+        })
     }
 }
 struct BulkInstallation {
@@ -265,6 +312,14 @@ impl Engine {
                 generation: 0,
                 bulk_generation: 0,
                 clipboard_revision: 0,
+                clipboard_content_revision: 0,
+                awake_revision: 0,
+                peer_activity: None,
+                clipboard_notice_serial: 0,
+                notification_revision: 0,
+                clipboard_notice: None,
+                clipboard_notice_at: None,
+                clipboard_notice_generation: None,
                 control: None,
                 control_stop: None,
                 bulk: None,
@@ -275,6 +330,7 @@ impl Engine {
                 pending: vec![],
                 decisions: HashMap::new(),
                 suppress_clipboard: None,
+                suppress_clipboard_image: None,
             }),
             config_dir,
             receive_dir,
@@ -291,6 +347,10 @@ impl Engine {
             bulk_retirement_waiting: Notify::new(),
             #[cfg(test)]
             input_sink: Mutex::new(None),
+            #[cfg(test)]
+            image_sink: Mutex::new(None),
+            #[cfg(test)]
+            text_sink: Mutex::new(None),
             incoming: AsyncMutex::new(None),
             outgoing: AsyncMutex::new(()),
             pairing: AsyncMutex::new(()),
@@ -329,6 +389,10 @@ impl Engine {
         let e = engine.clone();
         tokio::spawn(async move {
             e.clipboard_loop().await;
+        });
+        let e = engine.clone();
+        tokio::spawn(async move {
+            e.preferences_loop().await;
         });
         let e = engine.clone();
         tokio::spawn(async move {
@@ -452,6 +516,9 @@ impl Engine {
                 paired: s.config.peer.is_some(),
                 connected: s.connected,
                 share_clipboard: s.config.settings.share_clipboard,
+                share_clipboard_images: s.config.settings.share_clipboard_images,
+                keep_peer_awake: s.config.settings.keep_peer_awake,
+                show_status_notifications: s.config.settings.show_status_notifications,
                 share_files: s.config.settings.share_files,
                 edge_switching: s.config.settings.edge_switching,
                 peer_on_left: s.config.settings.peer_on_left,
@@ -526,22 +593,30 @@ impl Engine {
         })
     }
     fn clipboard_session(&self) -> Option<(ClipboardContext, BulkSession)> {
+        self.clipboard_session_for(BulkKind::Text)
+    }
+    fn clipboard_session_for(&self, kind: BulkKind) -> Option<(ClipboardContext, BulkSession)> {
         let s = self.state();
         if *self.0.stop.borrow() {
             return None;
         }
-        let context = s.clipboard_context()?;
+        let context = s.clipboard_context_for(kind)?;
         Some((
             context,
             BulkSession {
                 tx: s.bulk.as_ref()?.clone(),
                 generation: context.generation,
                 bulk_generation: context.bulk_generation,
-                clipboard_revision: Some(context.revision),
+                clipboard_revision: Some((context.revision, context.content_revision, kind)),
             },
         ))
     }
     async fn bulk(&self, session: &BulkSession, message: Message) -> Result<()> {
+        // Waiting for capacity grants no authority. Reserve outside state, then
+        // recheck at the nonblocking enqueue commit on this original sender.
+        let permit = timeout(Duration::from_secs(6), session.tx.reserve())
+            .await
+            .context("Bulk queue timed out")??;
         {
             let s = self.state();
             ensure!(
@@ -551,18 +626,26 @@ impl Engine {
                     && s.connected,
                 "Transfer session changed; canceled"
             );
-            if let Some(revision) = session.clipboard_revision {
+            if let Some((revision, content_revision, kind)) = session.clipboard_revision {
                 ensure!(
                     !*self.0.stop.borrow()
-                        && s.config.settings.share_clipboard
+                        && match kind {
+                            BulkKind::Text => s.config.settings.share_clipboard,
+                            BulkKind::Image => s.config.settings.share_clipboard_images,
+                            BulkKind::File => false,
+                        }
                         && s.clipboard_revision == revision,
                     "Clipboard activation changed; canceled"
                 );
+                if matches!(message, Message::Offer { .. }) {
+                    ensure!(
+                        s.clipboard_content_revision == content_revision,
+                        "Clipboard changed before transfer offer; canceled"
+                    );
+                }
             }
+            permit.send(message);
         }
-        timeout(Duration::from_secs(6), session.tx.send(message))
-            .await
-            .context("Bulk queue timed out")??;
         Ok(())
     }
     pub fn create_invitation(&self) -> Result<String> {
@@ -608,19 +691,35 @@ impl Engine {
                 s.config.settings = Settings {
                     enabled: old.enabled && settings.enabled,
                     share_clipboard: old.share_clipboard && settings.share_clipboard,
+                    share_clipboard_images: old.share_clipboard_images
+                        && settings.share_clipboard_images,
                     share_files: old.share_files && settings.share_files,
                     edge_switching: old.edge_switching,
                     peer_on_left: old.peer_on_left,
+                    keep_peer_awake: old.keep_peer_awake && settings.keep_peer_awake,
+                    show_status_notifications: old.show_status_notifications
+                        && settings.show_status_notifications,
                 };
             }
             let applied = s.config.settings.clone();
-            if old.enabled != applied.enabled || old.share_clipboard != applied.share_clipboard {
+            if old.show_status_notifications != applied.show_status_notifications {
+                s.notification_revision = s.notification_revision.wrapping_add(1);
+            }
+            if old.enabled != applied.enabled
+                || old.share_clipboard != applied.share_clipboard
+                || old.share_clipboard_images != applied.share_clipboard_images
+            {
                 // This transition and its revision share one lock: even a fast
                 // off/on between clipboard polls must establish a new baseline.
                 s.clipboard_revision = s.clipboard_revision.wrapping_add(1);
             }
+            if old.enabled != applied.enabled || old.keep_peer_awake != applied.keep_peer_awake {
+                s.awake_revision = s.awake_revision.wrapping_add(1);
+                s.peer_activity = None;
+            }
             let revoke_bulk = (old.share_files && !applied.share_files)
-                || (old.share_clipboard && !applied.share_clipboard);
+                || (old.share_clipboard && !applied.share_clipboard)
+                || (old.share_clipboard_images && !applied.share_clipboard_images);
             if revoke_bulk {
                 s.bulk = None;
                 s.bulk_generation = s.bulk_generation.wrapping_add(1);
@@ -628,7 +727,10 @@ impl Engine {
                 s.pending.clear();
                 s.decisions.clear();
             }
-            let revoked = (old.enabled && !applied.enabled) || revoke_bulk;
+            let revoked = (old.enabled && !applied.enabled)
+                || revoke_bulk
+                || (old.keep_peer_awake && !applied.keep_peer_awake)
+                || (old.show_status_notifications && !applied.show_status_notifications);
             (applied, save_error, revoked)
         };
         self.0.platform.configure(
@@ -1275,6 +1377,7 @@ impl Engine {
         let messages = incoming.clone();
         let mut reader = channel.reader;
         let seen = last_received.clone();
+        let e = self.clone();
         let mut reader_task = tokio::spawn(async move {
             loop {
                 let value = reader.recv().await?;
@@ -1282,6 +1385,9 @@ impl Engine {
                 // Only freshly authenticated network records refresh liveness;
                 // processing an old queued event cannot extend the watchdog.
                 seen.store(input_pipeline::millis(start.elapsed()), Ordering::Release);
+                if matches!(&value, Message::PeerActivity) {
+                    e.record_peer_activity(generation, queued_at);
+                }
                 messages.push(value, queued_at)?;
             }
             #[allow(unreachable_code)]
@@ -1293,6 +1399,13 @@ impl Engine {
         let mut writer_task = tokio::spawn(async move {
             while let Some(message) = queue.recv().await {
                 e.session_current(generation)?;
+                if matches!(message.value, Message::PeerActivity)
+                    && message.queued_at.elapsed() >= input_pipeline::MAX_INPUT_AGE
+                {
+                    // Optional power activity may expire before a write starts.
+                    // Never disconnect working input merely to renew that lease.
+                    continue;
+                }
                 let deadline =
                     e.0.pipeline
                         .input_deadline(message.queued_at, StaleStage::OutgoingQueue)?;
@@ -1385,6 +1498,7 @@ impl Engine {
                             },
                             Message::Decision {id,accept} => { if let Some(sender) = self.state().decisions.remove(&id) {let _=sender.send(accept);} },
                             Message::Received {id} => { if let Some(sender) = self.state().decisions.remove(&id) {let _=sender.send(true);} },
+                            Message::PeerActivity => {},
                             _ => bail!("Unexpected message on input channel"),
                         }
                     }
@@ -1610,14 +1724,23 @@ impl Engine {
                 let allowed = {
                     let s = self.state();
                     valid(&s)
-                        && if kind == BulkKind::File {
-                            s.config.settings.share_files
-                                && size < MAX_FILE_BYTES
-                                && validate_filename(&name).is_ok()
-                        } else {
-                            s.config.settings.share_clipboard
-                                && size <= MAX_CLIPBOARD_BYTES as u64
-                                && name.is_empty()
+                        && match kind {
+                            BulkKind::File => {
+                                s.config.settings.share_files
+                                    && size < MAX_FILE_BYTES
+                                    && validate_filename(&name).is_ok()
+                            }
+                            BulkKind::Text => {
+                                s.config.settings.share_clipboard
+                                    && size <= MAX_CLIPBOARD_BYTES as u64
+                                    && name.is_empty()
+                            }
+                            BulkKind::Image => {
+                                s.config.settings.share_clipboard_images
+                                    && size > 0
+                                    && size <= MAX_CLIPBOARD_IMAGE_BYTES as u64
+                                    && name.is_empty()
+                            }
                         }
                 };
                 if !allowed || incoming.is_some() {
@@ -1632,7 +1755,7 @@ impl Engine {
                 *incoming = Some(Incoming {
                     offer: offer.clone(),
                     kind,
-                    accepted: kind == BulkKind::Text,
+                    accepted: kind != BulkKind::File,
                     received: 0,
                     hash: Sha256::new(),
                     text: vec![],
@@ -1642,7 +1765,7 @@ impl Engine {
                     created: Instant::now(),
                     owner: bulk_generation,
                 });
-                if kind == BulkKind::Text {
+                if kind != BulkKind::File {
                     self.control(Message::Decision { id, accept: true })?;
                 } else {
                     self.state().pending = vec![offer];
@@ -1660,10 +1783,10 @@ impl Engine {
                 let allowed = {
                     let s = self.state();
                     valid(&s)
-                        && if current.kind == BulkKind::File {
-                            s.config.settings.share_files
-                        } else {
-                            s.config.settings.share_clipboard
+                        && match current.kind {
+                            BulkKind::File => s.config.settings.share_files,
+                            BulkKind::Text => s.config.settings.share_clipboard,
+                            BulkKind::Image => s.config.settings.share_clipboard_images,
                         }
                 };
                 ensure!(allowed, "Transfer sharing was disabled");
@@ -1692,7 +1815,23 @@ impl Engine {
                 );
                 let digest: [u8; 32] = current.hash.clone().finalize().into();
                 ensure!(digest == sha256, "Transfer integrity check failed");
-                if current.kind == BulkKind::Text {
+                if current.kind == BulkKind::Image {
+                    ensure!(
+                        self.state().config.settings.share_clipboard_images,
+                        "Image clipboard sharing disabled"
+                    );
+                    let png = std::mem::take(&mut current.text);
+                    let cache = self.0.config_dir.join("clipboard-images");
+                    let prepared = tokio::task::spawn_blocking(move || {
+                        let image = ClipboardImage::from_png(&png)?;
+                        emc_platform::clipboard_image::prepare_image(image, &cache)
+                    })
+                    .await??;
+                    self.apply_clipboard_image(prepared, generation, bulk_generation)
+                        .await?;
+                    self.event(EventCode::ClipboardImageApplied);
+                    self.clipboard_notice(ClipboardNotice::ImageReceived, generation);
+                } else if current.kind == BulkKind::Text {
                     ensure!(
                         self.state().config.settings.share_clipboard,
                         "Clipboard sharing disabled"
@@ -1714,10 +1853,22 @@ impl Engine {
                             "Clipboard transfer revoked"
                         );
                         s.suppress_clipboard = Some(digest);
-                        emc_platform::write_clipboard(&text)
+                        #[cfg(test)]
+                        let sink = e.0.text_sink.lock().unwrap().clone();
+                        #[cfg(test)]
+                        if let Some(sink) = sink {
+                            sink(&text)?;
+                        } else {
+                            emc_platform::write_clipboard(&text)?;
+                        }
+                        #[cfg(not(test))]
+                        emc_platform::write_clipboard(&text)?;
+                        s.clipboard_content_revision = s.clipboard_content_revision.wrapping_add(1);
+                        Ok::<_, anyhow::Error>(())
                     })
                     .await??;
                     self.event(EventCode::ClipboardApplied);
+                    self.clipboard_notice(ClipboardNotice::TextReceived, generation);
                 } else {
                     ensure!(
                         self.state().config.settings.share_files,
@@ -1971,7 +2122,141 @@ impl Engine {
             .await?;
         }
         self.finish_send(&session, id, Sha256::digest(text.as_bytes()).into())
-            .await
+            .await?;
+        self.clipboard_notice(ClipboardNotice::TextSent, session.generation);
+        Ok(())
+    }
+    async fn apply_clipboard_image(
+        &self,
+        prepared: PreparedImage,
+        generation: u64,
+        bulk_generation: u64,
+    ) -> Result<()> {
+        let e = self.clone();
+        tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            {
+                let sink = e.0.image_sink.lock().unwrap().clone();
+                if let Some(sink) = sink {
+                    let mut s = e.state();
+                    ensure!(
+                        s.generation == generation
+                            && s.bulk_generation == bulk_generation
+                            && s.connected
+                            && s.bulk.is_some()
+                            && !*e.0.stop.borrow()
+                            && s.config.settings.enabled
+                            && s.config.settings.share_clipboard_images,
+                        "Image clipboard transfer revoked"
+                    );
+                    s.suppress_clipboard_image = Some(prepared.digest());
+                    s.clipboard_content_revision = s.clipboard_content_revision.wrapping_add(1);
+                    sink(&prepared)?;
+                    return Ok(());
+                }
+            }
+            let digest = prepared.digest();
+            // Native allocation, cache hashing/eviction and Zone.Identifier I/O
+            // finish on this worker before acquiring the session commit lock.
+            let mut publication = emc_platform::clipboard_image::prepare_publication(prepared)?;
+            let result = {
+                let mut s = e.state();
+                ensure!(
+                    s.generation == generation
+                        && s.bulk_generation == bulk_generation
+                        && s.connected
+                        && s.bulk.is_some()
+                        && !*e.0.stop.borrow()
+                        && s.config.settings.enabled
+                        && s.config.settings.share_clipboard_images,
+                    "Image clipboard transfer revoked"
+                );
+                s.suppress_clipboard_image = Some(digest);
+                // EmptyClipboard or earlier formats may succeed before a later
+                // native call fails. Every permitted attempt invalidates reads
+                // sampled before it, including a partially published clipboard.
+                s.clipboard_content_revision = s.clipboard_content_revision.wrapping_add(1);
+                publication.publish()
+            };
+            // Publication drops its clipboard/cache guards, allocations and
+            // temporary files here, after state, including on publish failure.
+            result
+        })
+        .await?
+    }
+    async fn send_image(&self, image: ClipboardImage, session: BulkSession) -> Result<()> {
+        let _guard = self.0.outgoing.try_lock().context("Bulk sender busy")?;
+        let png = tokio::task::spawn_blocking(move || image.to_png()).await??;
+        let (id, session) = self
+            .offer_on(session, String::new(), png.len() as u64, BulkKind::Image)
+            .await?;
+        for data in png.chunks(CHUNK_BYTES) {
+            self.bulk(
+                &session,
+                Message::Chunk {
+                    id: id.clone(),
+                    data: data.to_vec(),
+                },
+            )
+            .await?;
+        }
+        self.finish_send(&session, id, Sha256::digest(&png).into())
+            .await?;
+        self.clipboard_notice(ClipboardNotice::ImageSent, session.generation);
+        Ok(())
+    }
+    async fn poll_clipboard_image_with(
+        &self,
+        previous: &mut ImageBaseline,
+        read: impl std::future::Future<Output = Result<ClipboardImageSample>>,
+    ) -> Result<()> {
+        let Some((context, session)) = self.clipboard_session_for(BulkKind::Image) else {
+            *previous = None;
+            return Ok(());
+        };
+        let ClipboardImageSample {
+            sequence,
+            current_sequence,
+            image,
+        } = read.await?;
+        let hash = image.as_ref().map(ClipboardImage::digest);
+        let suppressed = {
+            let mut s = self.state();
+            let current = s.clipboard_context_for(BulkKind::Image);
+            if *self.0.stop.borrow() || !current.is_some_and(|now| context.same_activation(now)) {
+                *previous = None;
+                return Ok(());
+            }
+            if current != Some(context) {
+                // A received clipboard write invalidates this read, while its
+                // activation baseline still belongs to the same trusted session.
+                return Ok(());
+            }
+            if sequence != current_sequence {
+                // Native bytes and their token were captured together while
+                // OpenClipboard was held. A change during decode needs a fresh
+                // read; it cannot become a baseline or a copy of stale pixels.
+                return Ok(());
+            }
+            s.suppress_clipboard_image.take()
+        };
+        let baseline = previous
+            .as_ref()
+            .filter(|(old, _, _)| context.same_activation(*old));
+        if baseline.is_none()
+            || baseline.is_some_and(|(_, old_sequence, _)| *old_sequence == sequence)
+            || hash.is_none()
+            || hash.is_some_and(|hash| suppressed == Some(hash))
+        {
+            // Absence is a real activation baseline: the first image copied
+            // later is new, while an image already present on activation stays local.
+            *previous = Some((context, sequence, hash));
+            return Ok(());
+        }
+        self.send_image(image.context("Missing clipboard image")?, session)
+            .await?;
+        *previous = Some((context, sequence, hash));
+        Ok(())
     }
     async fn poll_clipboard_with(
         &self,
@@ -1982,7 +2267,7 @@ impl Engine {
             *previous = None;
             return Ok(());
         };
-        if previous.is_some_and(|(old, _)| old != context) {
+        if previous.is_some_and(|(old, _)| !context.same_activation(old)) {
             *previous = None;
         }
         let Some(text) = read.await else {
@@ -1990,10 +2275,14 @@ impl Engine {
         };
         let suppressed = {
             let s = self.state();
-            if *self.0.stop.borrow() || s.clipboard_context() != Some(context) {
+            let current = s.clipboard_context();
+            if *self.0.stop.borrow() || !current.is_some_and(|now| context.same_activation(now)) {
                 // An asynchronous read cannot be adopted by another activation
                 // or session, including off/on transitions this poll missed.
                 *previous = None;
+                return Ok(());
+            }
+            if current != Some(context) {
                 return Ok(());
             }
             s.suppress_clipboard
@@ -2020,6 +2309,7 @@ impl Engine {
         let mut tick = interval(Duration::from_millis(350));
         let mut stop = self.0.stop.subscribe();
         let mut previous = None;
+        let mut previous_image = None;
         loop {
             tokio::select! {
                 _ = stopped(&mut stop) => break,
@@ -2030,6 +2320,21 @@ impl Engine {
                     };
                     if let Err(error) = self.poll_clipboard_with(&mut previous, read).await {
                         self.error(EventCode::ClipboardTransferFailed, &error);
+                    }
+                    let context = self.clipboard_session_for(BulkKind::Image).map(|(context, _)| context);
+                    let sequence = emc_platform::clipboard_sequence();
+                    if previous_image.map(|(context, sequence, _)| (context, sequence))
+                        != context.map(|context| (context, sequence)) {
+                        let read = async {
+                            let (sequence, image) = tokio::task::spawn_blocking(
+                                emc_platform::clipboard_image::read_image_sample)
+                                .await.context("Image clipboard read worker failed")??;
+                            Ok(ClipboardImageSample { sequence,
+                                current_sequence: emc_platform::clipboard_sequence(), image })
+                        };
+                        if let Err(error) = self.poll_clipboard_image_with(&mut previous_image, read).await {
+                            self.error(EventCode::ClipboardTransferFailed, &error);
+                        }
                     }
                 }
             }

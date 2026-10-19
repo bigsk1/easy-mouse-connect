@@ -51,6 +51,7 @@ pub enum EventCode {
     EmergencyStop,
     ClipboardTransferFailed,
     ClipboardApplied,
+    ClipboardImageApplied,
     FileOffered,
     FileAccepted,
     FileDeclined,
@@ -88,6 +89,7 @@ impl EventCode {
             Self::EmergencyStop => "Emergency stop: sharing paused; control is local.",
             Self::ClipboardTransferFailed => "Clipboard transfer could not complete.",
             Self::ClipboardApplied => "A permitted clipboard update was applied.",
+            Self::ClipboardImageApplied => "A permitted image clipboard update was applied.",
             Self::FileOffered => "A peer requested permission to send a file.",
             Self::FileAccepted => "Incoming file transfer accepted.",
             Self::FileDeclined => "Incoming file transfer declined.",
@@ -212,6 +214,9 @@ pub struct DiagnosticSummary {
     pub paired: bool,
     pub connected: bool,
     pub share_clipboard: bool,
+    pub share_clipboard_images: bool,
+    pub keep_peer_awake: bool,
+    pub show_status_notifications: bool,
     pub share_files: bool,
     pub edge_switching: bool,
     pub peer_on_left: bool,
@@ -706,6 +711,7 @@ fn sanitize_record(line: &str) -> Option<SanitizedRecord> {
         "emergency_stop",
         "clipboard_transfer_failed",
         "clipboard_applied",
+        "clipboard_image_applied",
         "file_offered",
         "file_accepted",
         "file_declined",
@@ -949,6 +955,7 @@ mod input_diagnostic_tests {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().join("logs");
         let logs = DiagnosticLog::open(directory.clone()).unwrap();
+        logs.record(EventCode::ClipboardImageApplied);
         for reason in [
             FailureReason::NativePreconditionUnavailable,
             FailureReason::NativeCursorUnavailable,
@@ -975,6 +982,9 @@ mod input_diagnostic_tests {
         }
         let summary = DiagnosticSummary {
             engine_available: true,
+            share_clipboard_images: true,
+            keep_peer_awake: true,
+            show_status_notifications: true,
             control_diagnostics: counters.snapshot(Some(7)),
             input: InputDiagnostics {
                 source_edge_samples: 11,
@@ -1002,6 +1012,13 @@ mod input_diagnostic_tests {
             .read_to_string(&mut summary_text)
             .unwrap();
         let summary: serde_json::Value = serde_json::from_str(&summary_text).unwrap();
+        for field in [
+            "share_clipboard_images",
+            "keep_peer_awake",
+            "show_status_notifications",
+        ] {
+            assert_eq!(summary["engine"][field], true);
+        }
         let input = &summary["engine"]["control_diagnostics"];
         assert_eq!(input["stale_input_failures"], 4);
         for field in [
@@ -1052,6 +1069,7 @@ mod input_diagnostic_tests {
             .read_to_string(&mut records)
             .unwrap();
         for expected in [
+            "clipboard_image_applied",
             "input_entry_failed",
             "native_precondition_unavailable",
             "native_cursor_unavailable",

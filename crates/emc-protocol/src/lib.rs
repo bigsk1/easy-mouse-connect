@@ -5,9 +5,13 @@ use serde::{Deserialize, Serialize};
 pub const PORT: u16 = 24859;
 pub const MAX_FILE_BYTES: u64 = 100_000_000;
 pub const MAX_CLIPBOARD_BYTES: usize = 1_048_576;
+pub const MAX_CLIPBOARD_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_CLIPBOARD_IMAGE_RGBA_BYTES: usize = 64 * 1024 * 1024;
 pub const CHUNK_BYTES: usize = 48 * 1024;
 pub const MAX_PLAINTEXT: usize = 64 * 1024 - 17;
-pub const MAGIC: &[u8; 5] = b"EMC01";
+pub const MAGIC: &[u8; 5] = b"EMC02";
+/// Only the explicit outbound legacy invitation import uses this preamble.
+pub const LEGACY_MAGIC: &[u8; 5] = b"EMC01";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MouseButton {
@@ -50,6 +54,7 @@ pub enum InputEvent {
 pub enum BulkKind {
     Text,
     File,
+    Image,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +90,8 @@ pub enum Message {
     Cancel {
         id: String,
     },
+    /// Authenticated user-activity indication; it never carries input content.
+    PeerActivity,
 }
 
 impl Message {
@@ -175,5 +182,27 @@ mod tests {
         }
         .encode()
         .is_err());
+    }
+    #[test]
+    fn image_offer_and_activity_use_the_new_version_without_reordering_old_tags() {
+        assert_eq!(MAGIC, b"EMC02");
+        assert_ne!(MAGIC, LEGACY_MAGIC);
+        assert_eq!(Message::Ready.encode().unwrap(), [1]);
+        assert_eq!(postcard::to_stdvec(&BulkKind::Text).unwrap(), [0]);
+        assert_eq!(postcard::to_stdvec(&BulkKind::File).unwrap(), [1]);
+        assert_eq!(postcard::to_stdvec(&BulkKind::Image).unwrap(), [2]);
+        let image = Message::Offer {
+            id: "a".repeat(32),
+            name: String::new(),
+            size: MAX_CLIPBOARD_IMAGE_BYTES as u64,
+            kind: BulkKind::Image,
+        };
+        assert!(matches!(Message::decode(&image.encode().unwrap()).unwrap(),
+            Message::Offer { kind: BulkKind::Image, size, .. } if size == MAX_CLIPBOARD_IMAGE_BYTES as u64));
+        assert_eq!(Message::PeerActivity.encode().unwrap(), [11]);
+        assert!(matches!(
+            Message::decode(&[11]).unwrap(),
+            Message::PeerActivity
+        ));
     }
 }

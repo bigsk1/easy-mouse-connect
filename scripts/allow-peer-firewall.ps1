@@ -5,12 +5,20 @@ param(
     [ValidateRange(1024, 65535)][int] $Port = 24859
 )
 
-. (Join-Path $PSScriptRoot 'common.ps1')
-Assert-Windows
+if ($env:OS -ne 'Windows_NT') {
+    throw 'This firewall helper requires Windows.'
+}
+# Import the OS module explicitly rather than resolving a same-named module
+# from a user directory. The application's elevated broker also isolates its
+# process-local PSModulePath before entering this script.
+Import-Module "$PSHOME\Modules\NetSecurity\NetSecurity.psd1" -Force -ErrorAction Stop
 
 $peerIp = $null
 if (-not [System.Net.IPAddress]::TryParse($PeerAddress, [ref] $peerIp)) {
     throw 'PeerAddress must be one literal IPv4 or IPv6 address. Wildcards, DNS names and subnets are not accepted.'
+}
+if ($peerIp.IsIPv4MappedToIPv6) {
+    $peerIp = $peerIp.MapToIPv4()
 }
 if ([System.Net.IPAddress]::Any.Equals($peerIp) -or [System.Net.IPAddress]::IPv6Any.Equals($peerIp) -or
     [System.Net.IPAddress]::Broadcast.Equals($peerIp) -or $peerIp.IsIPv6Multicast -or
@@ -45,11 +53,23 @@ Write-Host "Rule name: $ruleName"
 Write-Host "Inbound TCP $Port; program $resolvedProgram; peer $normalizedIp; Domain/Private profiles only."
 
 if ($PSCmdlet.ShouldProcess($ruleName, 'Allow the specified peer to connect to Easy Mouse Connect')) {
-    if (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue) {
-        Write-Host 'This exact rule already exists. Inspect it with Get-NetFirewallRule before changing policy.'
+    $existing = @(NetSecurity\Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue)
+    if ($existing.Count -gt 0) {
+        $ports = @($existing | NetSecurity\Get-NetFirewallPortFilter)
+        $apps = @($existing | NetSecurity\Get-NetFirewallApplicationFilter)
+        $addresses = @($existing | NetSecurity\Get-NetFirewallAddressFilter)
+        if ($existing.Count -ne 1 -or $ports.Count -ne 1 -or $apps.Count -ne 1 -or $addresses.Count -ne 1 -or
+            $existing[0].Direction -ne 'Inbound' -or $existing[0].Action -ne 'Allow' -or
+            $existing[0].Enabled -ne 'True' -or [int]$existing[0].Profile -ne 3 -or
+            $ports[0].Protocol -notin @('TCP', '6') -or @($ports[0].LocalPort).Count -ne 1 -or
+            [string]$ports[0].LocalPort -ne [string]$Port -or $apps[0].Program -ine $resolvedProgram -or
+            @($addresses[0].RemoteAddress).Count -ne 1 -or [string]$addresses[0].RemoteAddress -ine $normalizedIp) {
+            throw 'A rule with this name has different settings. Inspect it in Windows Firewall; this helper will not replace or broaden it.'
+        }
+        Write-Host 'The exact peer-scoped rule already exists and is enabled.'
         return
     }
-    New-NetFirewallRule -Name $ruleName -DisplayName "Easy Mouse Connect peer $normalizedIp" `
+    NetSecurity\New-NetFirewallRule -Name $ruleName -DisplayName "Easy Mouse Connect peer $normalizedIp" `
         -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port `
         -Program $resolvedProgram -RemoteAddress $normalizedIp -Profile Domain,Private | Out-Null
     Write-Host "Created. Remove later with: Remove-NetFirewallRule -Name '$ruleName'"
