@@ -1,0 +1,75 @@
+name: Prepare release
+run-name: ${{ inputs.verify_only && 'Verify release assets' || 'Prepare release draft' }} · build ${{ inputs.build_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful current-main Verify and package run ID
+        required: true
+        type: string
+      verify_only:
+        description: Verify the existing build without creating a draft
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-release
+  cancel-in-progress: false
+
+env:
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: core.autocrlf
+  GIT_CONFIG_VALUE_0: 'false'
+
+jobs:
+  preview-draft:
+    name: Prepare verified preview draft
+    if: >-
+      ${{ github.ref == 'refs/heads/main'
+          && github.actor == github.repository_owner
+          && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify the selected main build
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: >-
+          python scripts/create-preview-release.py --check-build
+          --build-run-id "$BUILD_RUN_ID"
+          --build-record "$RUNNER_TEMP/release-build.json"
+          --github-output "$GITHUB_OUTPUT"
+      - name: Download the verified immutable artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.build.outputs.artifact_id }}
+          run-id: ${{ steps.build.outputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: ${{ runner.temp }}/release-assets
+      - name: Verify assets and prepare the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFY_ONLY: ${{ inputs.verify_only }}
+        shell: bash
+        run: |
+          arguments=(--assets "$RUNNER_TEMP/release-assets"
+                     --notes-file packaging/RELEASE-NOTES.md
+                     --build-record "$RUNNER_TEMP/release-build.json")
+          if [[ "$VERIFY_ONLY" == 'true' ]]; then
+            arguments+=(--verify-only)
+          fi
+          python scripts/create-preview-release.py "${arguments[@]}"

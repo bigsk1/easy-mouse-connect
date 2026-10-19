@@ -1,48 +1,47 @@
 # Windows preview releases
 
-Published Windows x64 previews appear in [GitHub Releases](https://github.com/bigsk1/easy-mouse-connect/releases). Each release contains the existing **Easy Mouse Connect Preview** per-user installer, the portable executable, instructions, a sanitized source snapshot and checksums. Preview installers are unsigned and require Microsoft Edge WebView2 Runtime. Use the same app version on both PCs.
+Download Windows x64 previews from [GitHub Releases](https://github.com/bigsk1/easy-mouse-connect/releases). Use assets from one release and install the same application version on both PCs. The per-user installer and portable executable require Microsoft Edge WebView2 Runtime; Rust and Node are needed only to build from source. Preview executables are unsigned, so Windows may show a publisher or reputation warning.
+
+## Choose your download
 
 | Asset | Purpose |
 | --- | --- |
-| `EasyMouseConnect-<version>-preview-setup.exe` | Per-user preview installer with shortcuts and an uninstaller |
-| `easy-mouse-connect.exe` | Portable executable; each PC creates its own local identity |
+| `EasyMouseConnect-<version>-preview-setup.exe` | Per-user **Easy Mouse Connect Preview** installer, shortcuts and normal Windows uninstall registration |
+| `easy-mouse-connect.exe` | Portable executable; run a local copy on each PC and keep each PC's own identity |
 | `START-HERE.txt` | Pairing, upgrade, uninstall and troubleshooting instructions |
-| `Easy-Mouse-Connect-source-<version>-preview.zip` | Sanitized source snapshot from the packaged revision |
-| `SHA256SUMS.txt` | SHA-256 hashes of the four payload files |
+| `Easy-Mouse-Connect-source-<version>-preview.zip` | Sanitized source snapshot corresponding to the packaged revision |
+| `SHA256SUMS.txt` | SHA-256 hashes for the included payload files |
+| `BUILD-INFO.json`, when included | Source commit and build-run metadata for that package |
 
-Download assets from one release. Compare a downloaded file with its entry in `SHA256SUMS.txt` using PowerShell:
+Choose the installer for a normal per-user installation. The portable executable creates no uninstall entry. GitHub's automatically generated source archives are separate from the explicitly sanitized source ZIP.
+
+## Check a downloaded file
+
+Download `SHA256SUMS.txt` from the same release as the executable. In PowerShell, calculate its SHA-256:
 
 ```powershell
 Get-FileHash .\EasyMouseConnect-0.4.1-preview-setup.exe -Algorithm SHA256
 ```
 
-Checksums identify matching bytes; they are not a publisher signature or a reproducible-build claim. GitHub's automatic source archives are separate from the explicitly sanitized source ZIP. Before upgrading, Quit both tray apps and retain protected identity/settings data. Existing `Easy Mouse Connect Preview` installations use this same preview installer format. If Windows lists a separate **Easy Mouse Connect** installation from the normal Tauri installer, Quit and uninstall that installation before installing the preview; uninstall preserves identity/settings and received files.
+Compare the entire hash with the entry for that filename in the manifest. A mismatch means the files do not match; download them again from the intended release before installing. Checksums identify matching bytes. They are not a publisher signature, an independent security audit or a claim that another build produces the same executable.
 
-## Build and create a draft
+## Upgrade both PCs
 
-The **Verify and package** workflow retains the required `Core (ubuntu-latest)`, `Core (windows-latest)` and `Windows desktop and unsigned installer` checks. Pushes, pull requests and ordinary manual runs keep read-only repository permissions. The Windows job completes the normal Tauri NSIS build, then packages that same executable with `scripts/package-preview.py` and stages the five preview assets with `scripts/stage-preview.py`. The normal Tauri installer remains a build check; the downloadable package uses the established preview registration and install directory.
+1. Choose **Quit Easy Mouse Connect** from the tray on both PCs. The window's X hides the app and keeps sharing active.
+2. Install the same preview on each PC, or replace each local portable copy while the app is closed.
+3. Retain `%LOCALAPPDATA%\EasyMouseConnect\identity.dat` and the existing pairing. Each PC keeps its own protected identity/settings; do not copy one PC's profile to the other or use **Forget device** merely to upgrade.
+4. Relaunch both apps, confirm the trusted connection and try crossing/return, typing and any enabled clipboard/file features.
 
-Git checkout uses a process-scoped `core.autocrlf=false` on all runners so the Windows source snapshot and Linux publisher can be compared byte for byte. Official actions are pinned to verified commit SHAs.
+Versions 0.4.0 and 0.4.1 share the `EMC02` wire format; they do not connect to 0.3.7. Use the same 0.4.1 build on both PCs for its clipboard fixes. Preserving identities across an upgrade does not make different wire versions compatible.
 
-The packaging step uses `makensis.exe` from Tauri's `%LOCALAPPDATA%\tauri\NSIS` cache, or an available `makensis.exe` on `PATH`. It requires the accompanying NSIS include files and fails if no complete compiler is available. It does not install or run the application. Every successful Windows run uploads the staged package as `easy-mouse-connect-windows-x64-unsigned-<commit>` in Actions artifacts.
-
-To prepare a release, update the checked-in version manifests and `packaging/RELEASE-NOTES.md` together, then merge the change through the required checks. The notes start with `# Easy Mouse Connect <version> preview`; describe that version's changes, verification evidence and known limits. Documentation/publication changes do not change the runtime version. Preserve accepted local packages and stage any new package in a fresh destination.
-
-1. Open **Actions → Verify and package → Run workflow** and select `main`.
-2. Set **Create an unpublished preview release draft** to true, then run the workflow.
-3. After the required build succeeds, the publisher downloads that run's staged artifact, validates its exact files and checksums, verifies matching manifests and the checked-out source commit, and creates a **draft prerelease** named `Easy Mouse Connect <version> preview` with tag `v<version>`.
-4. Review the draft's notes, target commit and all five assets. Check relevant Windows and two-PC acceptance evidence, security/dependency review and unsigned-publisher status. Publish the prerelease manually only after that review.
-
-The publisher runs only for a manual dispatch by the repository owner from `main`, with the draft input enabled and a successful Windows job. Only that job has `contents: write`, using the workflow's GitHub token. It checks out the exact run commit with credentials disabled and uploads the assets from the same run. An existing release is an error; the helper does not replace published assets. A matching existing tag must identify the exact commit. Drafts are not public downloads, and this workflow never publishes them or installs an automatic updater.
+Existing **Easy Mouse Connect Preview** installations use the same preview installer format. If Windows lists a separate **Easy Mouse Connect** installation from the normal Tauri installer, Quit and uninstall that installation before installing the preview to avoid keeping two app copies. Uninstall preserves identity/settings, diagnostics, received files and cached clipboard images. Received-file and image-cache locations are described in the [README](../README.md#clipboard-and-files).
 
 ## Verification status
 
-The local 0.4.1 package has a maintainer report of approximately half a day of ordinary two-PC use, behaving as expected. One keyboard interruption recovered after reselecting its Bluetooth host; the cause is unconfirmed. This is sufficient for the maintainer's preview-release decision, without passing unrecorded formats, fault cases, sleep/wake, network or hardware combinations. See the [0.4.1 test record](manual-testing.md#confirmed-041-local-build-use).
+The retained local 0.4.1 package has a maintainer report of approximately half a day of ordinary two-PC use, behaving as expected. One keyboard interruption recovered after reselecting its Bluetooth host; the cause is unconfirmed. This is limited normal-use evidence, rather than a pass of every image format, policy/fault case, timer, network path or hardware configuration. The [0.4.1 test record](manual-testing.md#confirmed-041-local-build-use) identifies that package and the cases actually reported.
 
-The published 0.3.7 GitHub preview retains its separate physical confirmation on one Windows 11 x64 pair: screen crossing and local return, typing, rapid scrolling, very fast mouse movement, basic app-based file transfer, and remote-to-local text clipboard through context-menu Copy and Ctrl+C. See the [confirmed release checks](manual-testing.md#confirmed-037-release-checks) for that exact scope. Version 0.3.5 remains the preserved native-input comparison baseline.
+Public downloads can be separately produced CI binaries, with their own checksums and build metadata. A local test report does not make another executable byte-identical or pass its download/install smoke check. Record GitHub-package acceptance separately. The earlier [0.3.7 checks](manual-testing.md#confirmed-037-release-checks) and [0.4.0 image-copy checks](manual-testing.md#confirmed-040-image-copy-checks) retain their original scopes; version 0.3.5 remains the preserved native-input comparison baseline.
 
-The accepted local 0.4.1 installer has SHA-256 `8f1b4c9a01722b5e194a21f460e4b97bad10ed3ba269b3fdadea55267c6a5a35`; its portable executable has SHA-256 `d78cc271a33651715aee7173a9f1f2d8fac30749ea89184a4cef0da3436ece40`. Release preparation preserves its runtime/frontend/build sources and lockfiles, with documentation updates only. The public release uses separately built, same-run CI assets and the release's own `SHA256SUMS.txt`. Local test observations do not make the CI executables byte-identical or pass their download/install smoke check. Preserve both sets of artifacts, and record GitHub-package acceptance separately.
+Automated protocol/core tests, Windows API contracts, browser fixtures and package compilation cover different boundaries. They do not establish physical forwarding, every application/driver/display combination or measured end-to-end latency. See [manual testing](manual-testing.md) for the remaining checks and [troubleshooting](troubleshooting.md) for diagnosis and diagnostic export.
 
-The older tested GitHub package remains identified by tag `v0.3.7` and its published checksums. Never replace published versioned assets or overwrite accepted local packages. Runtime changes require a new version and fresh acceptance.
-
-The [AI-assisted source review](security-review.md) is additional review evidence, not an independent professional security audit. It does not establish the absence of vulnerabilities or replace dependency review, adversarial runtime tests, installer review or the [hardware acceptance matrix](manual-testing.md). Record the exact revision and cases actually exercised. See [development](development.md), [SECURITY.md](../SECURITY.md) and the [threat model](threat-model.md) for the relevant boundaries.
+The [AI-assisted source review](security-review.md) is additional evidence, not an independent professional security audit or proof that no vulnerabilities remain. [SECURITY.md](../SECURITY.md) describes the trust model and private reporting process.

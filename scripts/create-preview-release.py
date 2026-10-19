@@ -1,9 +1,10 @@
 """Create an unpublished prerelease draft from a verified staged preview.
 
-Run after package-preview.py and stage-preview.py. A trusted manual main CI run
-must supply assets built in that same run; checksums alone do not prove a binary
-was built from the source. This helper never publishes, replaces or deletes a
-release, tag or asset. Requires Python 3.11+, Git and the authenticated gh CLI.
+Reuse a successful main CI build; release preparation never compiles the app.
+The owner-only manual workflow verifies build provenance before downloading its
+immutable artifact and again before creating a draft. Checksums alone do not
+prove a binary was built from the source. This helper never publishes, replaces
+or deletes a release, tag or asset. Requires Python 3.11+, Git and gh.
 """
 import argparse
 import hashlib
@@ -31,6 +32,10 @@ EXCLUDED_PARTS = {
 }
 EXCLUDED_SUFFIXES = {".key", ".pem", ".pfx", ".p12", ".dpapi", ".log", ".pyc", ".pdb", ".tmp", ".part"}
 VERSION_PATTERN = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+REQUIRED_BUILD_JOBS = {
+    "Core (ubuntu-latest)", "Core (windows-latest)",
+    "Windows desktop and unsigned installer",
+}
 
 
 def require(condition, message):
@@ -141,7 +146,7 @@ def checked_source(root, archive_path, tracked):
                         "Source ZIP bytes differ from the checked checkout: " + info.filename)
 
 
-def checked_assets(root, directory, version, head, repo, tracked):
+def checked_assets(root, directory, version, head, repo, tracked, build=None):
     directory = directory.resolve(strict=True)
     payloads = {"easy-mouse-connect.exe", f"EasyMouseConnect-{version}-preview-setup.exe",
                 "START-HERE.txt", f"Easy-Mouse-Connect-source-{version}-preview.zip"}
@@ -173,10 +178,10 @@ def checked_assets(root, directory, version, head, repo, tracked):
         require(info_path.stat().st_size <= 16 * 1024, "BUILD-INFO exceeds 16 KiB.")
         require(os.environ.get("GITHUB_ACTIONS") == "true", "BUILD-INFO requires a current CI run.")
         expected = {"version": version, "commit": head, "repository": repo,
-                    "run_id": os.environ.get("GITHUB_RUN_ID"),
-                    "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT")}
+                    "run_id": str(build["run_id"]) if build else os.environ.get("GITHUB_RUN_ID"),
+                    "run_attempt": str(build["run_attempt"]) if build else os.environ.get("GITHUB_RUN_ATTEMPT")}
         require(all(expected.values()) and json.loads(info_path.read_text(encoding="utf-8")) == expected,
-                "BUILD-INFO does not match this exact CI run, commit and version.")
+                "BUILD-INFO does not match the exact CI run, commit and version.")
     return [directory / name for name in sorted(payloads | {"SHA256SUMS.txt"})]
 
 
@@ -184,6 +189,121 @@ def api(root, endpoint):
     result = command(["gh", "api", "--paginate", "--slurp", endpoint], root)
     require(result.returncode == 0, "GitHub API preflight failed; no release was created.")
     return json.loads(result.stdout)
+
+
+def api_object(root, endpoint):
+    pages = api(root, endpoint)
+    require(isinstance(pages, list) and len(pages) == 1 and isinstance(pages[0], dict),
+            "Unexpected GitHub object response.")
+    return pages[0]
+
+
+def api_entries(root, endpoint, field):
+    pages = api(root, endpoint)
+    require(isinstance(pages, list) and pages and all(
+        isinstance(page, dict) and isinstance(page.get(field), list)
+        and all(isinstance(entry, dict) for entry in page[field]) for page in pages),
+        "Unexpected GitHub list response.")
+    return [entry for page in pages for entry in page[field]]
+
+
+def positive_integer(value):
+    return type(value) is int and value > 0
+
+
+def checked_run_snapshot(run, repo, run_id, head, workflow):
+    allowed_paths = {workflow["path"], workflow["path"] + "@main", workflow["path"] + "@refs/heads/main"}
+    require(run.get("id") == run_id and run.get("workflow_id") == workflow["id"]
+            and run.get("path") in allowed_paths, "Build is not from the expected CI workflow.")
+    require(run.get("event") in {"push", "workflow_dispatch"} and run.get("head_branch") == "main",
+            "Release artifacts must come from a main push or manual main CI build, never a PR or tag.")
+    require(run.get("status") == "completed" and run.get("conclusion") == "success",
+            "Build run must be completed successfully.")
+    require(run.get("head_sha") == head, "Build commit differs from the current release checkout.")
+    for field in ("repository", "head_repository"):
+        value = run.get(field)
+        require(isinstance(value, dict) and isinstance(value.get("full_name"), str)
+                and value["full_name"].casefold() == repo.casefold() and positive_integer(value.get("id")),
+                "Build repository identity does not match this repository.")
+    repository_id = run["repository"]["id"]
+    require(run["head_repository"]["id"] == repository_id, "Fork builds cannot supply release assets.")
+    attempt = run.get("run_attempt")
+    require(positive_integer(attempt), "Build attempt is unavailable.")
+    return attempt, repository_id
+
+
+def checked_main_ref(root, repo, head):
+    main = api_object(root, f"repos/{repo}/git/ref/heads/main")
+    target = main.get("object")
+    require(main.get("ref") == "refs/heads/main" and isinstance(target, dict)
+            and target.get("type") == "commit" and target.get("sha") == head,
+            "Remote main moved; choose a successful build of the current main commit.")
+
+
+def checked_build(root, repo, run_id, head):
+    require(isinstance(run_id, (str, int)) and not isinstance(run_id, bool)
+            and re.fullmatch(r"[1-9][0-9]{0,19}", str(run_id)),
+            "Build run ID must be a positive decimal integer.")
+    run_id = int(run_id)
+    workflow = api_object(root, f"repos/{repo}/actions/workflows/ci.yml")
+    require(positive_integer(workflow.get("id")) and workflow.get("path") == ".github/workflows/ci.yml",
+            "Build workflow identity is unavailable or unexpected.")
+    run = api_object(root, f"repos/{repo}/actions/runs/{run_id}")
+    attempt, repository_id = checked_run_snapshot(run, repo, run_id, head, workflow)
+    checked_main_ref(root, repo, head)
+    jobs = api_entries(root, f"repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100", "jobs")
+    for name in REQUIRED_BUILD_JOBS:
+        matches = [job for job in jobs if job.get("name") == name]
+        require(len(matches) == 1 and matches[0].get("status") == "completed"
+                and matches[0].get("conclusion") == "success",
+                "Every required build check must have one successful completed job in the selected attempt.")
+    name = f"easy-mouse-connect-windows-x64-unsigned-{head}"
+    artifacts = api_entries(root, f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", "artifacts")
+    matches = [artifact for artifact in artifacts if artifact.get("name") == name]
+    require(len(matches) == 1, "Build must contain exactly one matching Windows artifact.")
+    artifact = matches[0]
+    require(artifact.get("expired") is False and positive_integer(artifact.get("id"))
+            and positive_integer(artifact.get("size_in_bytes")) and artifact["size_in_bytes"] <= 512 * 1024 * 1024,
+            "Build artifact is expired, empty or outside the supported size bound.")
+    digest_value = artifact.get("digest")
+    require(isinstance(digest_value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", digest_value),
+            "Build artifact digest is missing or invalid.")
+    owner = artifact.get("workflow_run")
+    require(isinstance(owner, dict) and owner.get("id") == run_id
+            and owner.get("head_branch") == "main" and owner.get("head_sha") == head
+            and owner.get("repository_id") == repository_id and owner.get("head_repository_id") == repository_id,
+            "Artifact ownership does not match the selected main build.")
+    # Metadata collection can paginate while a trusted rerun or main update is
+    # starting. Do not return the old successful snapshot after those requests.
+    fresh = api_object(root, f"repos/{repo}/actions/runs/{run_id}")
+    require(checked_run_snapshot(fresh, repo, run_id, head, workflow) == (attempt, repository_id),
+            "Build attempt or repository identity changed during validation.")
+    checked_main_ref(root, repo, head)
+    return {"repository": repo, "commit": head, "run_id": run_id, "run_attempt": attempt,
+            "workflow_id": workflow["id"], "artifact_id": artifact["id"],
+            "artifact_name": name, "artifact_digest": digest_value}
+
+
+def checked_build_record(root, path, repo, head):
+    require(path.is_file() and not path.is_symlink() and 0 < path.stat().st_size <= 16 * 1024,
+            "Build provenance record is missing or invalid.")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    require(isinstance(record, dict), "Build provenance record must be an object.")
+    fresh = checked_build(root, repo, record.get("run_id"), head)
+    require(record == fresh, "Build provenance changed; do not publish a replacement artifact or build attempt.")
+    return fresh
+
+
+def checked_ci_context(repo, head):
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        owner = repo.split("/", 1)[0]
+        require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+                and os.environ.get("GITHUB_REF") == "refs/heads/main"
+                and os.environ.get("GITHUB_REPOSITORY") == repo
+                and os.environ.get("GITHUB_SHA") == head,
+                "CI draft creation requires a manual main run for this repository and exact commit.")
+        require(os.environ.get("GITHUB_ACTOR") == owner and os.environ.get("GITHUB_TRIGGERING_ACTOR") == owner,
+                "CI release preparation and reruns require the repository owner.")
 
 
 def checked_github(root, repo, tag, head):
@@ -219,27 +339,51 @@ def checked_github(root, repo, tag, head):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--assets", required=True, type=Path)
-    parser.add_argument("--notes-file", required=True, type=Path)
+    parser.add_argument("--assets", type=Path)
+    parser.add_argument("--notes-file", type=Path)
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"))
     parser.add_argument("--expected-head", default=os.environ.get("GITHUB_SHA"))
+    parser.add_argument("--check-build", action="store_true")
+    parser.add_argument("--build-run-id")
+    parser.add_argument("--build-record", type=Path)
+    parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", args.repo or ""),
             "Supply an owner/repository with --repo or GITHUB_REPOSITORY.")
     head, tracked = checked_checkout(root, args.expected_head)
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-                and os.environ.get("GITHUB_REF") == "refs/heads/main"
-                and os.environ.get("GITHUB_REPOSITORY") == args.repo
-                and os.environ.get("GITHUB_SHA") == head,
-                "CI draft creation requires a manual main run for this repository and exact commit.")
+    checked_ci_context(args.repo, head)
+    if args.check_build:
+        require(args.build_record is not None and args.build_run_id is not None
+                and args.assets is None and args.notes_file is None and not args.verify_only,
+                "Build preflight requires a run ID and new provenance record path only.")
+        build = checked_build(root, args.repo, args.build_run_id, head)
+        with args.build_record.open("x", encoding="utf-8") as stream:
+            json.dump(build, stream, sort_keys=True)
+            stream.write("\n")
+        if args.github_output:
+            with args.github_output.open("a", encoding="utf-8") as stream:
+                stream.write(f"artifact_id={build['artifact_id']}\nrun_id={build['run_id']}\n")
+        print(f"Verified main CI build {build['run_id']}, artifact {build['artifact_id']}, commit {head}.")
+        return
+    require(args.assets is not None and args.notes_file is not None
+            and args.build_run_id is None and args.github_output is None,
+            "Draft preparation requires assets and tracked release notes.")
+    build = checked_build_record(root, args.build_record, args.repo, head) if args.build_record else None
+    require(os.environ.get("GITHUB_ACTIONS") != "true" or build is not None,
+            "CI publication requires a verified main-build provenance record.")
     version = checked_version(root)
     notes = checked_notes(root, args.notes_file, version, tracked)
-    assets = checked_assets(root, args.assets, version, head, args.repo, tracked)
+    assets = checked_assets(root, args.assets, version, head, args.repo, tracked, build)
+    if args.verify_only:
+        print(f"Verified {version} assets and source at {head}; no release or tag was created.")
+        return
     tag = f"v{version}"
     checked_github(root, args.repo, tag, head)
     checked_checkout(root, head)
+    if args.build_record:
+        checked_build_record(root, args.build_record, args.repo, head)
     result = command(["gh", "release", "create", tag, "--repo", args.repo, "--target", head,
                       "--title", f"Easy Mouse Connect {version} preview", "--notes-file", str(notes),
                       "--draft", "--prerelease", *map(str, assets)], root)

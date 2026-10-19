@@ -64,6 +64,15 @@ class PreviewReleaseTests(unittest.TestCase):
         self.tags = {}
         self.fail_api = False
         self.fail_create = False
+        self.build_attempt = 1
+        self.artifact_id = 456
+
+    def build_record(self):
+        return {"repository": self.repo, "commit": self.head, "run_id": 123,
+                "run_attempt": self.build_attempt, "workflow_id": 789,
+                "artifact_id": self.artifact_id,
+                "artifact_name": f"easy-mouse-connect-windows-x64-unsigned-{self.head}",
+                "artifact_digest": "sha256:" + "1" * 64}
 
     def copy_scripts(self):
         (self.root / "scripts").mkdir()
@@ -123,17 +132,46 @@ class PreviewReleaseTests(unittest.TestCase):
                 value = [self.refs]
             elif "/git/tags/" in endpoint:
                 value = [{"object": self.tags[endpoint.rsplit("/", 1)[-1]]}]
+            elif endpoint.endswith("/actions/workflows/ci.yml"):
+                value = [{"id": 789, "path": ".github/workflows/ci.yml"}]
+            elif endpoint.endswith("/actions/runs/123"):
+                identity = {"id": 42, "full_name": self.repo}
+                value = [{"id": 123, "workflow_id": 789, "path": ".github/workflows/ci.yml",
+                          "status": "completed", "conclusion": "success", "event": "push",
+                          "head_branch": "main", "head_sha": self.head,
+                          "run_attempt": self.build_attempt,
+                          "repository": identity, "head_repository": identity}]
+            elif endpoint.endswith("/git/ref/heads/main"):
+                value = [{"ref": "refs/heads/main", "object": {"type": "commit", "sha": self.head}}]
+            elif endpoint.endswith(f"/attempts/{self.build_attempt}/jobs?per_page=100"):
+                value = [{"jobs": [{"name": name, "status": "completed", "conclusion": "success"}
+                                   for name in self.module.REQUIRED_BUILD_JOBS]}]
+            elif endpoint.endswith("/actions/runs/123/artifacts?per_page=100"):
+                build = self.build_record()
+                value = [{"artifacts": [{"id": self.artifact_id, "name": build["artifact_name"],
+                                         "digest": build["artifact_digest"], "size_in_bytes": 1024,
+                                         "expired": False, "workflow_run": {
+                                             "id": 123, "head_branch": "main", "head_sha": self.head,
+                                             "repository_id": 42, "head_repository_id": 42}}]}]
             else:
                 self.fail("Unexpected gh API call: " + repr(args))
             return subprocess.CompletedProcess(args, 0, json.dumps(value), "")
         self.assertEqual(args[1:3], ["release", "create"])
         return subprocess.CompletedProcess(args, int(self.fail_create), "https://example.invalid/unpublished-draft\n", "")
 
-    def run_publisher(self, **environment):
-        env = {"GITHUB_ACTIONS": "", "GITHUB_REPOSITORY": self.repo, "GITHUB_SHA": self.head}
+    def run_publisher(self, build_record=True, verify_only=False, **environment):
+        owner = self.repo.split("/", 1)[0]
+        env = {"GITHUB_ACTIONS": "", "GITHUB_REPOSITORY": self.repo, "GITHUB_SHA": self.head,
+               "GITHUB_ACTOR": owner, "GITHUB_TRIGGERING_ACTOR": owner}
         env.update(environment)
         arguments = [str(self.root / "scripts/create-preview-release.py"), "--assets", str(self.assets),
                      "--notes-file", str(self.notes)]
+        if build_record and env["GITHUB_ACTIONS"] == "true":
+            record = self.base / "build-record.json"
+            record.write_text(json.dumps(self.build_record()), encoding="utf-8")
+            arguments.extend(["--build-record", str(record)])
+        if verify_only:
+            arguments.append("--verify-only")
         with patch.dict(os.environ, env), patch.object(sys, "argv", arguments), \
                 patch.object(self.module, "command", self.mock_gh), contextlib.redirect_stdout(io.StringIO()):
             self.module.main()
@@ -296,7 +334,7 @@ class PreviewReleaseTests(unittest.TestCase):
                 self.refused("manual main run", GITHUB_ACTIONS="true", GITHUB_EVENT_NAME=event, GITHUB_REF=ref)
         self.run_publisher(GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/heads/main")
 
-    def test_optional_build_info_must_match_current_run_and_be_hashed(self):
+    def test_optional_build_info_must_match_selected_build_and_be_hashed(self):
         info = {"version": self.version, "commit": self.head, "repository": self.repo,
                 "run_id": "123", "run_attempt": "1"}
         (self.assets / "BUILD-INFO.json").write_text(json.dumps(info), encoding="utf-8")
@@ -304,8 +342,54 @@ class PreviewReleaseTests(unittest.TestCase):
               "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"}
         self.refused("does not cover", **ci)
         self.manifest()
-        self.refused("exact CI run", **{**ci, "GITHUB_RUN_ID": "124"})
-        self.run_publisher(**ci)
+        self.run_publisher(**{**ci, "GITHUB_RUN_ID": "124"})
+        self.gh_calls.clear()
+        info["run_id"] = "124"
+        (self.assets / "BUILD-INFO.json").write_text(json.dumps(info), encoding="utf-8")
+        self.manifest()
+        self.refused("exact CI run", **ci)
+
+    def test_ci_record_and_owner_are_required(self):
+        ci = {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
+        self.refused("provenance record", build_record=False, **ci)
+        self.refused("repository owner", **{**ci, "GITHUB_ACTOR": "another-writer"})
+        self.refused("repository owner", **{**ci, "GITHUB_TRIGGERING_ACTOR": "another-writer"})
+
+    def test_verify_only_checks_provenance_and_assets_without_release_write(self):
+        self.run_publisher(verify_only=True, GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="workflow_dispatch",
+                           GITHUB_REF="refs/heads/main")
+        self.assertTrue(any("/artifacts?" in call[-1] for call in self.gh_calls))
+        self.assertFalse(any(call[1:3] == ["release", "create"] for call in self.gh_calls))
+        self.assertFalse(any("/releases?" in call[-1] for call in self.gh_calls))
+        self.gh_calls.clear()
+        (self.assets / "easy-mouse-connect.exe").write_bytes(b"corrupt fixture")
+        self.refused("checksum mismatch", verify_only=True)
+
+    def test_artifact_replacement_during_remote_preflight_is_refused(self):
+        original = self.mock_gh
+
+        def race(args, root):
+            result = original(args, root)
+            if args[0] == "gh" and "/git/matching-refs/" in args[-1]:
+                self.artifact_id += 1
+            return result
+
+        with patch.object(self, "mock_gh", side_effect=race):
+            self.refused("provenance changed", GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="workflow_dispatch",
+                         GITHUB_REF="refs/heads/main")
+
+    def test_build_preflight_records_immutable_selection_without_release_write(self):
+        record = self.base / "selection.json"
+        output = self.base / "github-output.txt"
+        arguments = [str(self.root / "scripts/create-preview-release.py"), "--check-build", "--build-run-id", "123",
+                     "--build-record", str(record), "--github-output", str(output)]
+        env = {"GITHUB_ACTIONS": "", "GITHUB_REPOSITORY": self.repo, "GITHUB_SHA": self.head}
+        with patch.dict(os.environ, env), patch.object(sys, "argv", arguments), \
+                patch.object(self.module, "command", self.mock_gh), contextlib.redirect_stdout(io.StringIO()):
+            self.module.main()
+        self.assertEqual(json.loads(record.read_text()), self.build_record())
+        self.assertEqual(output.read_text(), "artifact_id=456\nrun_id=123\n")
+        self.assertFalse(any(call[1:3] == ["release", "create"] for call in self.gh_calls))
 
     def test_partial_draft_creation_failure_is_clear_without_retry(self):
         self.fail_create = True

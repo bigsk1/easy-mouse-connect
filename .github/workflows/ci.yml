@@ -2,14 +2,10 @@ name: Verify and package
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      draft_release:
-        description: Create an unpublished preview release draft
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -139,31 +135,3 @@ jobs:
             artifacts/staged-preview/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
-
-  preview-draft:
-    name: Create unpublished preview release draft
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch'
-          && inputs.draft_release == true
-          && github.ref == 'refs/heads/main'
-          && github.actor == github.repository_owner
-          && needs.windows-desktop.result == 'success' }}
-    needs: windows-desktop
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Download the staged package from this run
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: easy-mouse-connect-windows-x64-unsigned-${{ github.sha }}
-          path: artifacts/staged-preview
-      - name: Validate assets and create a draft prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/create-preview-release.py --assets artifacts/staged-preview --notes-file packaging/RELEASE-NOTES.md
-
