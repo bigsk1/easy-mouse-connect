@@ -4,7 +4,7 @@ members = ["crates/emc-protocol", "crates/emc-core", "crates/emc-platform", "app
 default-members = ["crates/emc-protocol", "crates/emc-core", "crates/emc-platform"]
 
 [workspace.package]
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 rust-version = "1.99"
 

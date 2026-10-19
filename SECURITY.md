@@ -8,7 +8,7 @@ Include the affected version, Windows build, minimal reproduction, expected and 
 
 ## Status and trust model
 
-Easy Mouse Connect is a development preview for the current Windows user session. It has not completed an independent security audit or the full hardware acceptance matrix, and it has no supported production release. Reproduce problems on the current preview where practical; this policy does not promise fixes for older builds or a response deadline.
+Easy Mouse Connect is a Windows 11 x64 preview for the current user session. An [AI-assisted source security review](docs/security-review.md) examined the 0.3.6 baseline and led to two policy fixes in 0.3.7. This is review evidence, not an independent professional audit or proof that all vulnerabilities have been excluded. Physical acceptance remains incomplete; there is no supported production release. Reproduce problems on the current preview where practical; this policy does not promise fixes for older builds or a response deadline.
 
 Pairing grants the other PC the ability to control the signed-in desktop and receive the features explicitly enabled on both ends. Encryption does not protect against a compromised paired PC or a compromised Windows account. See the [threat model](docs/threat-model.md) for assumptions and boundaries.
 
@@ -29,7 +29,7 @@ The app runs without a service or elevation. UAC/secure desktop, lock-screen and
 
 Input capture, encrypted transport and ordered native insertion remain in Rust. Every `SendInput` operation runs on one bounded ordered worker outside the hook/raw-input thread. Acknowledgment follows actual insertion and guarded ownership commit, not enqueueing. Original deadlines, connection epochs and separate local ownership tokens reject obsolete work; stale input and queue overflow release/disconnect rather than replaying a backlog. An OS call already in progress cannot be forcibly interrupted, and accepted events cannot be withdrawn; tracked holds are cleaned when insertion returns.
 
-Pause/Stop, disconnection, heartbeat loss, revocation and Quit end active authority and release input. Local reclaim and **Ctrl+Alt+Escape** provide local recovery. Closing the settings window keeps sharing active in the tray; use Pause or Quit when sharing should stop. A second launch focuses the existing instance.
+Pause/Stop, disconnection, heartbeat loss, revocation and Quit end active authority and release input. Requested Stop/Pause and file/clipboard permission reductions apply to the current run even if saving settings fails; the error explains that the previous saved permissions may return after restarting. An unsuccessful save cannot enable new permissions. Clipboard baselines and pending reads/sends are bound to their original activation and connection/channel generations. Local reclaim and **Ctrl+Alt+Escape** provide local recovery. Closing the settings window keeps sharing active in the tray; use Pause or Quit when sharing should stop. A second launch focuses the existing instance.
 
 ## Logs and diagnostic exports
 

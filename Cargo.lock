@@ -966,7 +966,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "easy-mouse-connect"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "emc-core",
  "serde",
@@ -1010,7 +1010,7 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "emc-core"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "emc-platform"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "emc-protocol",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "emc-protocol"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "postcard",

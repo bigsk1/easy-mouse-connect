@@ -78,6 +78,7 @@ struct Runtime {
     connected: bool,
     generation: u64,
     bulk_generation: u64,
+    clipboard_revision: u64,
     control: Option<Arc<OrderedQueue<Message>>>,
     control_stop: Option<watch::Sender<bool>>,
     bulk: Option<mpsc::Sender<Message>>,
@@ -158,6 +159,28 @@ struct BulkSession {
     tx: mpsc::Sender<Message>,
     generation: u64,
     bulk_generation: u64,
+    clipboard_revision: Option<u64>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ClipboardContext {
+    generation: u64,
+    bulk_generation: u64,
+    revision: u64,
+}
+type ClipboardBaseline = Option<(ClipboardContext, [u8; 32])>;
+
+impl Runtime {
+    fn clipboard_context(&self) -> Option<ClipboardContext> {
+        (self.connected
+            && self.bulk.is_some()
+            && self.config.settings.enabled
+            && self.config.settings.share_clipboard)
+            .then_some(ClipboardContext {
+                generation: self.generation,
+                bulk_generation: self.bulk_generation,
+                revision: self.clipboard_revision,
+            })
+    }
 }
 struct BulkInstallation {
     // Ownership follows the installer if its original caller is cancelled.
@@ -241,6 +264,7 @@ impl Engine {
                 connected: false,
                 generation: 0,
                 bulk_generation: 0,
+                clipboard_revision: 0,
                 control: None,
                 control_stop: None,
                 bulk: None,
@@ -498,7 +522,24 @@ impl Engine {
                 .context("File/clipboard channel is not ready")?,
             generation: s.generation,
             bulk_generation: s.bulk_generation,
+            clipboard_revision: None,
         })
+    }
+    fn clipboard_session(&self) -> Option<(ClipboardContext, BulkSession)> {
+        let s = self.state();
+        if *self.0.stop.borrow() {
+            return None;
+        }
+        let context = s.clipboard_context()?;
+        Some((
+            context,
+            BulkSession {
+                tx: s.bulk.as_ref()?.clone(),
+                generation: context.generation,
+                bulk_generation: context.bulk_generation,
+                clipboard_revision: Some(context.revision),
+            },
+        ))
     }
     async fn bulk(&self, session: &BulkSession, message: Message) -> Result<()> {
         {
@@ -510,6 +551,14 @@ impl Engine {
                     && s.connected,
                 "Transfer session changed; canceled"
             );
+            if let Some(revision) = session.clipboard_revision {
+                ensure!(
+                    !*self.0.stop.borrow()
+                        && s.config.settings.share_clipboard
+                        && s.clipboard_revision == revision,
+                    "Clipboard activation changed; canceled"
+                );
+            }
         }
         timeout(Duration::from_secs(6), session.tx.send(message))
             .await
@@ -547,17 +596,40 @@ impl Engine {
         emc_platform::write_clipboard(&invitation)
     }
     pub fn update_settings(&self, settings: Settings) -> Result<Status> {
-        let revoke_bulk = {
+        let (settings, save_error, revoked) = {
             let mut s = self.state();
             let old = s.config.settings.clone();
-            let revoke = (old.share_files && !settings.share_files)
-                || (old.share_clipboard && !settings.share_clipboard);
             s.config.settings = settings.clone();
-            if let Err(e) = s.config.save(&self.0.config_dir) {
-                s.config.settings = old;
-                return Err(e);
+            let save_error = s.config.save(&self.0.config_dir).err();
+            if save_error.is_some() {
+                // A failed disk write cannot restore authority the user revoked.
+                // New permissions and unrelated unsaved layout changes retain
+                // their prior values; these reductions apply to this run.
+                s.config.settings = Settings {
+                    enabled: old.enabled && settings.enabled,
+                    share_clipboard: old.share_clipboard && settings.share_clipboard,
+                    share_files: old.share_files && settings.share_files,
+                    edge_switching: old.edge_switching,
+                    peer_on_left: old.peer_on_left,
+                };
             }
-            revoke
+            let applied = s.config.settings.clone();
+            if old.enabled != applied.enabled || old.share_clipboard != applied.share_clipboard {
+                // This transition and its revision share one lock: even a fast
+                // off/on between clipboard polls must establish a new baseline.
+                s.clipboard_revision = s.clipboard_revision.wrapping_add(1);
+            }
+            let revoke_bulk = (old.share_files && !applied.share_files)
+                || (old.share_clipboard && !applied.share_clipboard);
+            if revoke_bulk {
+                s.bulk = None;
+                s.bulk_generation = s.bulk_generation.wrapping_add(1);
+                self.0.bulk_changed.notify_waiters();
+                s.pending.clear();
+                s.decisions.clear();
+            }
+            let revoked = (old.enabled && !applied.enabled) || revoke_bulk;
+            (applied, save_error, revoked)
         };
         self.0.platform.configure(
             settings.enabled,
@@ -567,17 +639,15 @@ impl Engine {
         if !settings.enabled {
             self.state().invitation = None;
             self.disconnect(EventCode::SharingPaused);
-        } else {
+        } else if save_error.is_none() {
             self.event(EventCode::SharingEnabled);
         }
-        if revoke_bulk {
-            // Re-establish bulk channels so disabled transfers cannot continue writing.
-            let mut s = self.state();
-            s.bulk = None;
-            s.bulk_generation = s.bulk_generation.wrapping_add(1);
-            self.0.bulk_changed.notify_waiters();
-            s.pending.clear();
-            s.decisions.clear();
+        if let Some(error) = save_error {
+            return Err(error.context(if revoked {
+                "Sharing revocations are active for this run, but settings could not be saved; the last saved permissions may return after restarting"
+            } else {
+                "Settings could not be saved; no new permissions or layout changes were applied"
+            }));
         }
         Ok(self.status())
     }
@@ -588,9 +658,9 @@ impl Engine {
         self.0.platform.release_all();
         let mut settings = self.state().config.settings.clone();
         settings.enabled = false;
-        self.update_settings(settings)?;
+        let result = self.update_settings(settings);
         self.event(EventCode::EmergencyStop);
-        Ok(())
+        result.map(|_| ())
     }
     pub async fn forget_peer(&self) -> Result<()> {
         let (owner, result) = {
@@ -1754,6 +1824,15 @@ impl Engine {
         kind: BulkKind,
     ) -> Result<(String, BulkSession)> {
         let session = self.bulk_session()?;
+        self.offer_on(session, name, size, kind).await
+    }
+    async fn offer_on(
+        &self,
+        session: BulkSession,
+        name: String,
+        size: u64,
+        kind: BulkKind,
+    ) -> Result<(String, BulkSession)> {
         let id = random_id();
         let (tx, rx) = oneshot::channel();
         self.state().decisions.insert(id.clone(), tx);
@@ -1872,10 +1951,10 @@ impl Engine {
         }
         result
     }
-    async fn send_text(&self, text: String) -> Result<()> {
+    async fn send_text(&self, text: String, session: BulkSession) -> Result<()> {
         let _guard = self.0.outgoing.try_lock().context("Bulk sender busy")?;
         let (id, session) = self
-            .offer(String::new(), text.len() as u64, BulkKind::Text)
+            .offer_on(session, String::new(), text.len() as u64, BulkKind::Text)
             .await?;
         for data in text.as_bytes().chunks(CHUNK_BYTES) {
             ensure!(
@@ -1894,20 +1973,66 @@ impl Engine {
         self.finish_send(&session, id, Sha256::digest(text.as_bytes()).into())
             .await
     }
+    async fn poll_clipboard_with(
+        &self,
+        previous: &mut ClipboardBaseline,
+        read: impl std::future::Future<Output = Option<String>>,
+    ) -> Result<()> {
+        let Some((context, session)) = self.clipboard_session() else {
+            *previous = None;
+            return Ok(());
+        };
+        if previous.is_some_and(|(old, _)| old != context) {
+            *previous = None;
+        }
+        let Some(text) = read.await else {
+            return Ok(());
+        };
+        let suppressed = {
+            let s = self.state();
+            if *self.0.stop.borrow() || s.clipboard_context() != Some(context) {
+                // An asynchronous read cannot be adopted by another activation
+                // or session, including off/on transitions this poll missed.
+                *previous = None;
+                return Ok(());
+            }
+            s.suppress_clipboard
+        };
+        if text.len() > MAX_CLIPBOARD_BYTES {
+            return Ok(());
+        }
+        let hash: [u8; 32] = Sha256::digest(text.as_bytes()).into();
+        if previous.is_none()
+            || previous.is_some_and(|(_, old_hash)| old_hash == hash)
+            || pairing::looks_like_credential(&text)
+            || suppressed == Some(hash)
+        {
+            *previous = Some((context, hash));
+            return Ok(());
+        }
+        // Carry the sender captured before the read through offer and every
+        // chunk/commit. No later lookup may select a replacement bulk channel.
+        self.send_text(text, session).await?;
+        *previous = Some((context, hash));
+        Ok(())
+    }
     async fn clipboard_loop(&self) {
         let mut tick = interval(Duration::from_millis(350));
         let mut stop = self.0.stop.subscribe();
         let mut previous = None;
         loop {
-            tokio::select! {_=stopped(&mut stop)=>break,_=tick.tick()=>{
-                let active={let s=self.state();s.connected && s.bulk.is_some() && s.config.settings.enabled && s.config.settings.share_clipboard};
-                if !active {previous=None;continue;}
-                let read=tokio::task::spawn_blocking(emc_platform::read_clipboard).await;
-                let Ok(Ok(Some(text)))=read else {continue};if text.len()>MAX_CLIPBOARD_BYTES {continue;}
-                let hash:[u8;32]=Sha256::digest(text.as_bytes()).into();
-                if previous.is_none() || previous==Some(hash) || pairing::looks_like_credential(&text) || self.state().suppress_clipboard==Some(hash) {previous=Some(hash);continue;}
-                match self.send_text(text).await {Ok(())=>previous=Some(hash),Err(error)=>self.error(EventCode::ClipboardTransferFailed,&error)}
-            }}
+            tokio::select! {
+                _ = stopped(&mut stop) => break,
+                _ = tick.tick() => {
+                    let read = async {
+                        tokio::task::spawn_blocking(emc_platform::read_clipboard)
+                            .await.ok().and_then(Result::ok).flatten()
+                    };
+                    if let Err(error) = self.poll_clipboard_with(&mut previous, read).await {
+                        self.error(EventCode::ClipboardTransferFailed, &error);
+                    }
+                }
+            }
         }
     }
     pub async fn diagnostics(&self, address: String) -> Result<String> {
@@ -2000,3 +2125,9 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
+
+// The isolated policy fixture uses the unsupported controller so these tests
+// never install Windows hooks or access the real clipboard/input desktop.
+#[cfg(all(test, not(windows)))]
+#[path = "engine_policy_tests.rs"]
+mod policy_tests;

@@ -2,7 +2,7 @@
 
 Share a mouse and keyboard between two Windows PCs over an authenticated, encrypted connection. Easy Mouse Connect uses Rust for networking and native input, with Tauri 2 and a small HTML/CSS/JavaScript settings interface.
 
-**Current version: 0.3.6 — Windows x64 preview.** See the [changelog](CHANGELOG.md) for updates. This is development software; the full hardware acceptance matrix and an independent security audit are incomplete. Pair only PCs you trust: input sharing grants the other PC control of your signed-in desktop. See [SECURITY.md](SECURITY.md) for the security model and reporting process.
+**Current version: 0.3.7 — Windows 11 x64 preview.** [Downloads](https://github.com/bigsk1/easy-mouse-connect/releases) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
 
 ![Easy Mouse Connect settings interface](docs/images/desktop-preview.png)
 
@@ -25,7 +25,9 @@ Input capture, encryption and networking stay in Rust. Mouse events do not pass 
 
 ## Install and pair
 
-Use the same version on both PCs. A Windows preview package contains a per-user installer and a portable executable. Microsoft Edge [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) is required; Rust and Node are needed only when building from source. Preview packages are unsigned, so Windows may show a publisher or reputation warning.
+Use the same version on both PCs. In [GitHub Releases](https://github.com/bigsk1/easy-mouse-connect/releases), choose a published Windows x64 preview and download `EasyMouseConnect-<version>-preview-setup.exe` or `easy-mouse-connect.exe`, plus `START-HERE.txt`. The release also contains a sanitized source ZIP and `SHA256SUMS.txt`; [release instructions](docs/releases.md) explain the files and checksum check. If no preview is published, [build from source](#build-from-source).
+
+The preview installer is per-user and uses the **Easy Mouse Connect Preview** installation entry. Microsoft Edge [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) is required; Rust and Node are needed only when building from source. Preview packages are unsigned, so Windows may show a publisher or reputation warning.
 
 1. Install the app locally on each PC, or run a local copy of the portable executable. Each PC creates its own identity; do not copy identity or settings data between PCs.
 2. Make the destination reachable on TCP port **24859**. Different LAN subnets need a route. Across separate networks, use an existing VPN such as Tailscale and enter the other PC's VPN address. Entering a private IP does not create a route. See [network setup](docs/networking.md) for route and scoped firewall checks.
@@ -48,7 +50,7 @@ Transfers use length and SHA-256 checks and Windows internet-zone marking before
 
 ## Update or uninstall
 
-Quit both tray apps before installing an update, then use the same version on both PCs. Keep `%LOCALAPPDATA%\EasyMouseConnect\identity.dat`: versions 0.2.0 through 0.3.6 preserve existing identities/settings and established paired peers. **Do not forget a working peer just to upgrade.** Update both PCs before creating a new pairing.
+Quit both tray apps before installing an update, then use the same version on both PCs. Keep `%LOCALAPPDATA%\EasyMouseConnect\identity.dat`: versions 0.2.0 through 0.3.7 preserve existing identities/settings and established paired peers. **Do not forget a working peer just to upgrade.** Update both PCs before creating a new pairing.
 
 Uninstall through **Windows Settings → Apps → Installed apps**, using **Easy Mouse Connect** or **Easy Mouse Connect Preview** for the small preview installer. Its Start menu also has an uninstall entry. Quit the tray app first. Uninstall removes the installed app, shortcuts and registration while preserving identities/settings, diagnostics and received files. The portable executable creates no uninstall entry.
 
@@ -61,6 +63,14 @@ Logs are stored in `%LOCALAPPDATA%\EasyMouseConnect\logs` as `emc.log`, `emc.1.l
 **Export diagnostic ZIP** creates `%LOCALAPPDATA%\EasyMouseConnect\diagnostic-exports\emc-diagnostics.zip`. It includes sanitized log records and numeric/boolean status, including aggregate counters and display dimensions, but no identity/settings files. Each export replaces that one archive; copy an older export elsewhere first if needed. Nothing uploads automatically. Review ZIPs and screenshots before sharing them.
 
 For ordinary bugs, use [GitHub issues](https://github.com/bigsk1/easy-mouse-connect/issues) with the app version, Windows versions, minimal reproduction, affected direction and relevant redacted diagnostics. [Troubleshooting](docs/troubleshooting.md) explains collection and counter interpretation. Report vulnerabilities [privately](https://github.com/bigsk1/easy-mouse-connect/security/advisories/new) using the process in [SECURITY.md](SECURITY.md).
+
+## Compatibility and security
+
+Windows 11 x64 is the supported desktop target. The two PCs do not need identical Windows feature versions or build numbers. Record `winver` results when reporting a problem: Windows updates, input drivers, display scaling and WebView2 can affect behavior. The [acceptance guide](docs/manual-testing.md) distinguishes the supported target from configurations actually tested.
+
+The 0.3.5 input baseline has limited two-PC mouse/keyboard/scrolling and basic file-send confirmation. Version 0.3.7 preserves the native input implementation and still needs physical acceptance. See [release verification status](docs/releases.md#verification-status) for the evidence and remaining cases.
+
+Pair only PCs you trust: input sharing grants control of your signed-in desktop. An [AI-assisted source review](docs/security-review.md) identified two policy issues fixed in 0.3.7. It is not an independent professional audit or a guarantee that all vulnerabilities have been excluded. [SECURITY.md](SECURITY.md) describes authentication, data protection, trust boundaries and private reporting.
 
 ## Current limits
 
@@ -101,7 +111,7 @@ Build the Windows installer with:
 .\scripts\build-windows.ps1
 ```
 
-Tauri writes the NSIS installer under `target\release\bundle\nsis\`. The first build requires network access for dependencies and packaging tools. See [preview packaging](packaging/README.md) for the alternative small NSIS recipe.
+Tauri writes the NSIS installer under `target\release\bundle\nsis\`. The first build requires network access for dependencies and packaging tools. See [preview packaging](packaging/README.md) for the Preview installer recipe used by downloadable releases.
 
 Portable checks can run without desktop WebView dependencies:
 

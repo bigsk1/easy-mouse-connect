@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      draft_release:
+        description: Create an unpublished preview release draft
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -14,6 +20,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Keep Windows-staged source identical to the Linux publisher checkout.
+  GIT_CONFIG_COUNT: '1'
+  GIT_CONFIG_KEY_0: core.autocrlf
+  GIT_CONFIG_VALUE_0: 'false'
 
 jobs:
   core:
@@ -24,11 +34,11 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Source snapshot privacy safeguards
-        run: python -m unittest discover -s tests -p test_stage_preview.py
+      - name: Package privacy and release safeguards
+        run: python -m unittest discover -s tests -p 'test_*.py'
       - name: Install Rust checks
         run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
       - name: Formatting
@@ -47,10 +57,10 @@ jobs:
     needs: core
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           package-manager-cache: false
@@ -83,7 +93,7 @@ jobs:
         run: npm run test:ui
       - name: Save UI failure screenshot
         if: ${{ failure() && steps.ui_checks.outcome == 'failure' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: easy-mouse-connect-ui-failure-${{ github.sha }}
           path: ${{ runner.temp }}/emc-ui-test-artifacts/failure.png
@@ -94,11 +104,71 @@ jobs:
       - name: Build unsigned NSIS package
         shell: pwsh
         run: ./scripts/build-windows.ps1 -SkipChecks
-      - name: Save development installer
-        uses: actions/upload-artifact@v7
+      - name: Package the same executable with the preview installer
+        shell: pwsh
+        run: |
+          $nsisCache = Join-Path $env:LOCALAPPDATA 'tauri\NSIS'
+          $cachedCompilers = @()
+          if (Test-Path -LiteralPath $nsisCache -PathType Container) {
+            $cachedCompilers = @(Get-ChildItem -LiteralPath $nsisCache -Filter makensis.exe -File -Recurse)
+          }
+          if ($cachedCompilers.Count -eq 1) {
+            $compiler = $cachedCompilers[0].FullName
+          } elseif ($cachedCompilers.Count -gt 1) {
+            throw 'Multiple cached NSIS compilers found; select the intended compiler explicitly.'
+          } else {
+            $availableCompiler = Get-Command makensis.exe -CommandType Application -ErrorAction SilentlyContinue
+            if ($null -eq $availableCompiler) {
+              throw 'NSIS compiler not found in the Tauri cache or PATH after the Tauri build.'
+            }
+            $compiler = $availableCompiler.Source
+          }
+          $nsisDirectory = Split-Path -Parent $compiler
+          if (-not (Test-Path -LiteralPath (Join-Path $nsisDirectory 'Include\MUI2.nsh') -PathType Leaf)) {
+            throw 'The NSIS compiler is missing its accompanying include files.'
+          }
+          $env:NSISDIR = $nsisDirectory
+          python scripts/package-preview.py --binary target/release/easy-mouse-connect.exe --output artifacts/windows-preview --makensis $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Preview packaging failed.' }
+      - name: Stage preview assets and sanitized source
+        run: python scripts/stage-preview.py --package artifacts/windows-preview --destination artifacts/staged-preview
+      - name: Save Windows preview package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: easy-mouse-connect-windows-x64-unsigned-${{ github.sha }}
-          path: target/release/bundle/nsis/*-setup.exe
+          path: |
+            artifacts/staged-preview/EasyMouseConnect-*-preview-setup.exe
+            artifacts/staged-preview/easy-mouse-connect.exe
+            artifacts/staged-preview/START-HERE.txt
+            artifacts/staged-preview/Easy-Mouse-Connect-source-*-preview.zip
+            artifacts/staged-preview/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
+
+  preview-draft:
+    name: Create unpublished preview release draft
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+          && inputs.draft_release == true
+          && github.ref == 'refs/heads/main'
+          && github.actor == github.repository_owner
+          && needs.windows-desktop.result == 'success' }}
+    needs: windows-desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download the staged package from this run
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: easy-mouse-connect-windows-x64-unsigned-${{ github.sha }}
+          path: artifacts/staged-preview
+      - name: Validate assets and create a draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/create-preview-release.py --assets artifacts/staged-preview --notes-file packaging/RELEASE-NOTES.md
 

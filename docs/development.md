@@ -11,10 +11,10 @@ cargo fmt --all -- --check
 cargo test --locked -p emc-protocol -p emc-core -p emc-platform
 cargo clippy --locked -p emc-protocol -p emc-core -p emc-platform --all-targets -- -D warnings
 node --check ui/app.js
-python -m unittest discover -s tests -p test_stage_preview.py
+python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Portable tests exercise protocol, policy, framing, loopback sessions and synthetic native state. The source-staging tests use temporary fixtures to verify private-data exclusions, optional license/notice inclusion, checksums and refusal to overwrite an existing destination. They do not access a real application profile.
+Portable tests exercise protocol, policy, framing, loopback sessions and synthetic native state. The source-staging tests use temporary fixtures to verify private-data exclusions, optional license/notice inclusion, checksums and refusal to overwrite an existing destination. Release-publisher tests use synthetic repositories and mocked GitHub calls to verify source/asset integrity, exact commit/tag checks and draft-only creation. They do not access a real application profile or publish a release.
 
 Install and run the settings-interface checks:
 
@@ -42,7 +42,7 @@ Keep one behavior change per patch. Add meaningful regression coverage for proto
 
 Use the [Windows acceptance matrix](manual-testing.md) for physical testing. At minimum, an input change needs both crossing directions, keyboard/modifier release, scrolling, idle return, local reclaim and Ctrl+Alt+Escape, plus the affected display/application case. File changes need consent, bounds, interruption, integrity, safe destinations and concurrent input. Report platform/build, mouse connection, relevant display/network configuration, exact revision and which cases actually ran.
 
-Preview 0.3.5 has limited two-PC mouse/keyboard/scrolling and basic Send file confirmation. The 0.3.6 maintenance preview still needs physical acceptance. Those observations do not establish every mouse, shell surface, display/DPI layout, network recovery path or transfer-policy case. Network RTT does not measure end-to-end input latency. Keep untested cases explicit; no automated suite substitutes for hardware acceptance or an independent security audit.
+Preview 0.3.5 has limited two-PC mouse/keyboard/scrolling and basic Send file confirmation. The 0.3.6 maintenance preview and 0.3.7 core-policy preview still need physical acceptance; their input-routing code preserves that baseline. Those observations do not establish every mouse, shell surface, display/DPI layout, network recovery path or transfer-policy case. Network RTT does not measure end-to-end input latency. Keep untested cases explicit; no automated suite substitutes for hardware acceptance or an independent security audit.
 
 ## Source and package hygiene
 
@@ -55,3 +55,5 @@ Use `scripts/stage-preview.py` as described in [packaging](../packaging/README.m
 User-facing documentation describes current behavior. Keep private test chronology and machine-specific investigation notes out of the public tree. Use Git commits and narrowly scoped release notes to explain product changes. Changes to protocol/persistence need compatibility and recovery tests before shipping; never replace trust or delete an identity to hide an upgrade failure.
 
 The repository is [MIT licensed](../LICENSE). Report exploitable security issues through the [private vulnerability-reporting form](https://github.com/bigsk1/easy-mouse-connect/security/advisories/new), and ordinary bugs through [GitHub Issues](https://github.com/bigsk1/easy-mouse-connect/issues).
+
+See [release preparation](releases.md) for the owner-requested CI draft workflow and [the source security review](security-review.md) for review scope and policy fixes.

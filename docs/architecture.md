@@ -37,7 +37,7 @@ RustCrypto SPAKE2 0.4 uses the code as its password on channel 3. Transcript-bou
 
 Subsequent control and bulk connections each authenticate pinned identities with `Noise_IK_25519_ChaChaPoly_BLAKE2s`. Addresses locate peers; they do not identify them. A changed key needs a new pairing decision. Records are bounded before decoding, and there is no plaintext fallback.
 
-Versions 0.2.0 through 0.3.6 preserve version-1 DPAPI identity/settings storage and established IK peers. Upgrading does not require deleting identities or forgetting a trusted peer. New pairing requires compatible short-code receivers. Rust retains an explicit outbound legacy `emc1` import branch, but generates no legacy tokens, rejects incoming channel-0 pairing and never falls back after short-code failure.
+Versions 0.2.0 through 0.3.7 preserve version-1 DPAPI identity/settings storage and established IK peers. Upgrading does not require deleting identities or forgetting a trusted peer. New pairing requires compatible short-code receivers. Rust retains an explicit outbound legacy `emc1` import branch, but generates no legacy tokens, rejects incoming channel-0 pairing and never falls back after short-code failure.
 
 Connections use TCP port 24859 with `TCP_NODELAY` over an existing route. There is no application relay, rendezvous server, subnet scan, UPnP or cloud account. The code-entering PC retains the dialing role, including manual reconnect and automatic attempts every three seconds; the other PC listens. See [protocol](protocol.md) for framing and authentication and [networking](networking.md) for route/firewall requirements.
 
@@ -97,7 +97,7 @@ The overlay remains an ordinary application window that shell, Start/Search, tas
 
 ## Clipboard and files
 
-Text clipboard sharing defaults off and is limited to 1 MiB of UTF-8. Both peers enforce policy. Activation establishes a baseline rather than sending existing clipboard content immediately. Transport encryption does not prevent an enabled trusted peer from receiving passwords/tokens present in shared content.
+Text clipboard sharing defaults off and is limited to 1 MiB of UTF-8. Both peers enforce policy. Activation establishes a baseline rather than sending existing clipboard content immediately. The baseline and asynchronous read/send retain their original control generation, bulk generation and clipboard policy revision; an off/on transition invalidates them even if polling never observes the inactive interval. Transport encryption does not prevent an enabled trusted peer from receiving passwords/tokens present in shared content.
 
 Files are offered through the app with explicit recipient approval. Each file must be **smaller than 100,000,000 bytes**; exactly that size is rejected. Reception uses `Downloads/EasyMouseConnect/<transfer-id>/<safe-name>`, a generated child directory, no overwrites and no automatic opening. Direct cross-PC Explorer drag and drop is not included.
 
@@ -114,3 +114,5 @@ Explicit export reparses allowlisted records and a numeric/boolean summary into 
 Close hides settings while sharing continues. The tray provides Open, Pause/Resume, Stop sharing and Quit. Single-instance handling focuses the existing window on another launch. Explicit Quit releases input and stops the engine. Upgrade with both peers fully quit and retain identity/settings data.
 
 See [development](development.md) for checks, [manual testing](manual-testing.md) for real Windows acceptance, and the [threat model](threat-model.md) for remaining trust boundaries. Portable tests and browser mocks do not establish hardware compatibility, end-to-end latency or secure-desktop control. A Linux desktop backend requires separate compositor-approved capture/emulation and permission work.
+
+Settings-save failure preserves requested Stop/Pause and file/clipboard reductions for the current run, without applying unsaved increases or unrelated layout changes. Channel retirement happens under the policy lock; native disable/disconnect runs before returning an explicit persistence/restart error.

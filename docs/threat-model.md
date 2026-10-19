@@ -36,7 +36,7 @@ Channel 3 uses RustCrypto SPAKE2 0.4/Ed25519Group, then HKDF-SHA256 over its sha
 
 Every reconnecting control and bulk channel independently authenticates pinned keys with Noise IK. Addresses, names and an already-open socket do not establish authority for another channel. Installation rechecks identity, generation, enabled/shutdown state and the still-valid pairing window before persisting trust. Revocation must terminate active authority as well as future reconnects. A confirmation failure can leave asymmetric local pairing state, which needs deliberate recovery rather than automatic trust replacement.
 
-Version-1 DPAPI identity/settings data and existing IK peers are preserved through 0.3.6. Upgrading does not require resetting identity or forgetting a trusted peer. Incoming legacy channel-0 pairing is rejected and no new legacy invitation is generated. An explicit outbound `emc1` import branch is compatibility code, never a downgrade after PAKE failure. See [protocol](protocol.md) for exact framing and binding.
+Version-1 DPAPI identity/settings data and existing IK peers are preserved through 0.3.7. Upgrading does not require resetting identity or forgetting a trusted peer. Incoming legacy channel-0 pairing is rejected and no new legacy invitation is generated. An explicit outbound `emc1` import branch is compatibility code, never a downgrade after PAKE failure. See [protocol](protocol.md) for exact framing and binding.
 
 ## Session generations and bulk ownership
 

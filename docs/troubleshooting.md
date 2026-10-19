@@ -8,6 +8,10 @@ Press **Ctrl+Alt+Escape** on the controlling PC. Physical input on the receiving
 
 To exit completely, choose tray **Quit Easy Mouse Connect**. The window's X only hides it. A second launch focuses the existing instance. Quit both tray apps before replacing executables or installing an update, then run the same version on both PCs. Keep each PC's own `%LOCALAPPDATA%\EasyMouseConnect\identity.dat`; upgrading a working pairing does not require **Forget device**.
 
+## Settings cannot be saved
+
+Version 0.3.7 keeps requested Stop/Pause and file/clipboard permission reductions active for the current run even when saving fails. The error explains that the last saved permissions may return after restart. Permission increases and unrelated layout changes are not applied on an unsuccessful save. Use tray Quit if sharing must remain stopped, then check available storage and the current user's write access to the app profile. Preserve `identity.dat`; deleting identity data is not a settings-write repair.
+
 ## The PCs cannot connect
 
 1. Confirm that the receiving app is running, sharing is enabled, and the entered IP is the intended peer's reachable address. The listener uses TCP **24859**.
@@ -21,7 +25,7 @@ The PC that originally entered the pairing code initiates automatic reconnect at
 
 On the destination, use **Devices → Pair a device → Show a pairing code → Generate code**. Type its 12 characters and reachable IP on the initiating PC. Hyphens/capitalization are handled for you. A code lasts five minutes and admits at most five attempts; failed or abandoned attempts consume that budget. Generate a fresh code after either limit. Update both PCs before creating a new pairing.
 
-A changed device key must fail verification. Confirm that the correct per-user profile is running; do not delete identity data or bypass the mismatch. Versions 0.2.0 through 0.3.6 retain established paired identities/settings. If a new pairing was interrupted and only one side remembers the other, explicitly forget the incomplete pairing and pair again with a fresh code. Do not use that procedure for a working pair merely to upgrade.
+A changed device key must fail verification. Confirm that the correct per-user profile is running; do not delete identity data or bypass the mismatch. Versions 0.2.0 through 0.3.7 retain established paired identities/settings. If a new pairing was interrupted and only one side remembers the other, explicitly forget the incomplete pairing and pair again with a fresh code. Do not use that procedure for a working pair merely to upgrade.
 
 An old `emc1` invitation is not a current short code. Current receivers do not accept new legacy-token pairing, and failed short-code pairing does not fall back to it or to plaintext. An established connection closing is also not proof of a failed handshake: route loss, local pause and native input failures can end an authenticated session. A locally known pause has its own policy category; remote EOF alone does not identify the peer's reason.
 

@@ -1,6 +1,6 @@
 # Protocol and session behavior
 
-Easy Mouse Connect uses an authenticated encrypted protocol over TCP, with separate connections for pairing, input/control and bulk transfer. This document describes version 0.3.6. Run the same application revision on both PCs: there is no stable wire-compatibility promise or version-negotiation mechanism. The authoritative definitions are `crates/emc-protocol/src/lib.rs`, `crates/emc-core/src/pairing.rs`, `crates/emc-core/src/transport.rs` and `crates/emc-core/src/engine.rs`.
+Easy Mouse Connect uses an authenticated encrypted protocol over TCP, with separate connections for pairing, input/control and bulk transfer. This document describes version 0.3.7. Run the same application revision on both PCs: there is no stable wire-compatibility promise or version-negotiation mechanism. The authoritative definitions are `crates/emc-protocol/src/lib.rs`, `crates/emc-core/src/pairing.rs`, `crates/emc-core/src/transport.rs` and `crates/emc-core/src/engine.rs`.
 
 ## TCP endpoints and preamble
 
@@ -49,7 +49,7 @@ A failure around persistent confirmation can leave the PCs with different local 
 
 ## Existing peers and legacy import
 
-Versions 0.2.0 through 0.3.6 preserve the version-1 DPAPI identity/settings format and the existing control/bulk IK paths. Established peers can reconnect without a new code or Forget device. This storage/authentication preservation does not promise interoperability between arbitrary development revisions; use the same updated build on both PCs.
+Versions 0.2.0 through 0.3.7 preserve the version-1 DPAPI identity/settings format and the existing control/bulk IK paths. Established peers can reconnect without a new code or Forget device. This storage/authentication preservation does not promise interoperability between arbitrary development revisions; use the same updated build on both PCs.
 
 The Rust pairing API retains an explicit outbound import branch only when its supplied credential begins with `emc1.`. Such an older token contains the receiver public key and a 32-byte secret, encoded as URL-safe Base64 without padding, and uses the older channel-00 XXpsk3 path with destination pinning. This version **does not generate** those tokens and **rejects incoming channel-00 pairing**. Normal settings pairing accepts the new short code. A failed channel-03 exchange never falls back to channel 00 or to plaintext. Code-shaped and legacy-token-shaped clipboard text is conservatively excluded from clipboard synchronization.
 

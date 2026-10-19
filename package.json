@@ -1,6 +1,6 @@
 {
   "name": "easy-mouse-connect",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "description": "Encrypted Windows keyboard and mouse sharing",
   "scripts": {

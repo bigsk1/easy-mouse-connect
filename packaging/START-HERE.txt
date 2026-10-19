@@ -1,4 +1,4 @@
-EASY MOUSE CONNECT 0.3.6 - WINDOWS X64 PREVIEW
+EASY MOUSE CONNECT 0.3.7 - WINDOWS X64 PREVIEW
 
 Share a mouse and keyboard between two explicitly paired Windows PCs.
 Connections require encryption and a trusted device identity.
@@ -123,8 +123,13 @@ https://github.com/bigsk1/easy-mouse-connect/security/advisories/new
 UPDATE AND UNINSTALL
 Quit BOTH tray apps before installing an update, then use the same version
 on both PCs. Keep identity.dat and the existing pairing. Versions 0.2.0 through
-0.3.6 preserve established paired peers and per-user identity/settings data.
+0.3.7 preserve established paired peers and per-user identity/settings data.
 Do not Forget device merely to upgrade.
+
+If saving settings fails, requested Stop/Pause and file/clipboard reductions
+remain active for this run; the last saved permissions may return on restart.
+The error explains this. Unsaved permission increases are not applied. Use
+tray Quit to keep the app stopped while resolving profile write access.
 
 Uninstall through Windows Settings > Apps > Installed apps > Easy Mouse Connect
 Preview, or its Start menu uninstall entry. Quit the tray app first.
@@ -133,12 +138,13 @@ identities/settings, diagnostics and received files. The portable executable
 has no uninstall entry.
 
 CURRENT LIMITS
-This is an unsigned development preview, with no independent security audit
-or completed hardware acceptance matrix. Trust only PCs you intend to control
-your signed-in desktop. Pairing uses a short-lived code and SPAKE2 before
+This is an unsigned preview. An AI-assisted source review led to two policy
+fixes in 0.3.7; it is not an independent professional audit. Physical acceptance
+of this build remains pending. See docs/security-review.md in the source ZIP.
+Trust only PCs you intend to control your signed-in desktop. Pairing uses a short-lived code and SPAKE2 before
 Noise identity exchange; transport has no plaintext fallback.
 
-Windows x64 user-session input is the desktop target. UAC, the lock screen,
+Windows 11 x64 user-session input is the desktop target. UAC, the lock screen,
 secure desktops and elevated application control are outside supported scope.
 The app installs no service, requests no elevation and changes no global cursor
 or Windows security settings. Keep UAC enabled.

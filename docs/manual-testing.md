@@ -2,13 +2,19 @@
 
 Use this checklist to test a build on your own pair of Windows PCs or to verify a change before release. Record the build and environment, then exercise the features and recovery paths relevant to your setup. Advanced fault-injection cases belong in an isolated development fixture, not an installed paired session.
 
-**Current preview status:** 0.3.5 has limited two-PC confirmation for mouse crossing, keyboard input, scrolling, Start-menu cursor visibility and basic app-based **Send file** transfer. Version 0.3.6 updates diagnostic ZIP dependencies without changing input-routing logic; it still needs physical acceptance as a new build. The full acceptance matrix remains incomplete. Clipboard sharing, file limits and failure policies, emergency/local release, and the wider hardware/network cases still need explicit results.
+**Current preview status:** 0.3.5 has limited two-PC confirmation for mouse crossing, keyboard input, scrolling, Start-menu cursor visibility and basic app-based **Send file** transfer. Version 0.3.6 updates diagnostic ZIP dependencies and 0.3.7 fixes settings/clipboard policy without changing native input-routing logic. Both need physical acceptance as new builds. The full acceptance matrix remains incomplete. Clipboard sharing, file limits and failure policies, emergency/local release, and the wider hardware/network cases still need explicit results.
 
 Portable tests, browser fixtures and compilation complement these physical checks. Record each case actually exercised; a passed result on one setup or revision does not pass a different setup or later implementation. See [development and verification](development.md) for repeatable checks and [architecture](architecture.md) for the current input and session contracts.
 
 Use non-sensitive accounts/content for the initial run. Keep a local keyboard/mouse on each PC. Verify the local emergency shortcut before moving control remotely. Use the same application revision on both PCs and preserve redacted failure details.
 
 Before updating, fully Quit both processes from their tray menus; the window's X hides it instead of exiting. Install the same update on both PCs and preserve `%LOCALAPPDATA%\EasyMouseConnect\identity.dat`. An existing pairing should reconnect with its original pinned identity, without Forget device. Test fresh short-code pairing using separate clean test profiles when needed; never delete an established identity just to create a test case.
+
+## Supported target and test records
+
+Windows 11 x64 is the desktop target; both PCs need not run the same feature version or cumulative build. Record each PC's Windows version/build from `winver`, app version, WebView2 version, mouse/keyboard connection and relevant display/DPI/network settings. These details help reproduce failures without requiring every monthly build combination to be tested before a preview.
+
+Two PCs are the minimum hardware setup, rather than the entire acceptance matrix. A representative preview check covers both directions, typing/modifiers and emergency release, fast/freewheel scrolling, the actual multi-monitor layout, Pause/Quit, reconnect after a network interruption or sleep/wake, and any enabled clipboard/file flow. Record broader edge cases below as passed, failed or untested. An automated Windows Server CI build is not a Windows 11 desktop acceptance result.
 
 ## Record the environment
 
