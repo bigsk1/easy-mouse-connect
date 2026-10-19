@@ -1,7 +1,10 @@
-EASY MOUSE CONNECT 0.3.7 - WINDOWS X64 PREVIEW
+EASY MOUSE CONNECT 0.4.1 - WINDOWS X64 PREVIEW
 
 Share a mouse and keyboard between two explicitly paired Windows PCs.
 Connections require encryption and a trusted device identity.
+Download matching installer/source/checksums from GitHub Releases. Install the
+same 0.4.1 build on BOTH PCs for the fixes. Versions 0.4.0/0.4.1 share EMC02;
+neither connects to 0.3.7. Existing identities and pairing are retained. Do not Forget device merely to update.
 Source and support: https://github.com/bigsk1/easy-mouse-connect
 
 INSTALL AND OPEN
@@ -43,8 +46,13 @@ sharing is enabled. Use Reconnect there; the code-generating PC listens.
 Different LAN subnets require routing. Across locations, use an existing VPN
 such as Tailscale with both peers online, authorized and allowed by policy.
 Entering an IP does not create a route or a VPN. The app does not open firewall
-rules automatically. See docs/networking.md in the source for the explicit
-peer-scoped firewall helper. Do not disable Windows Firewall or expose the
+rules automatically. If needed, open Troubleshooting, enter one peer IP and
+click Add a firewall rule. Approve the Windows prompt with local controls.
+A fixed helper adds an inbound rule for this executable, the exact peer and
+TCP 24859 on Private/Domain profiles only. The app itself remains unelevated.
+Cancelling approval changes no rule. The action creates no route/VPN and does
+not open Public networks. See docs/networking.md for scope/removal and the
+script-based helper. Do not disable Windows Firewall or expose the
 listener through internet port forwarding to make a connection work.
 
 DAILY CONTROLS
@@ -59,16 +67,58 @@ launch restores the window. Pause/Resume changes sharing availability;
 Stop sharing pauses and releases input. Quit Easy Mouse Connect exits the app.
 Forget device revokes trust and requires fresh explicit pairing to restore it.
 
+If a Bluetooth keyboard stops responding, confirm its selected host matches
+the intended controller. Reselecting that host restored one reported 0.4.1
+interruption; its cause is unconfirmed. If it repeats, record ownership/direction
+and collect both diagnostic ZIPs without including typed content.
+
 A protected held key/button can block crossing after a device or desktop
 switch. Release the actual control. If its UP was missed, press and release
 the affected modifier/button locally when prompted. The sender's pointer
 currently remains parked at its edge while routing remotely.
 
 CLIPBOARD AND FILES
-Both features start OFF. Enable each desired feature on BOTH PCs in Sharing.
-Clipboard supports plain text up to 1 MiB. Copy new text after connecting;
-enabling sharing does not immediately send the existing clipboard.
-Pairing-code-shaped text and legacy invitations are excluded from sync.
+Each feature starts OFF. Enable each desired permission on BOTH PCs in Sharing.
+Text, images and app-based files have separate permissions. Copy a NEW value
+after connecting/enabling; the old clipboard is not sent immediately.
+
+Plain-text clipboard supports up to 1 MiB of UTF-8: roughly one million ASCII
+characters, fewer for multibyte text. Pairing-code-shaped text and legacy
+invitations are excluded from text sync.
+
+Image clipboard accepts screenshots, supported bitmaps and one copied local
+PNG/JPEG/static WebP image file. It converts the image to PNG without an extra
+recipient prompt after image sharing is enabled. It does not preserve the
+original filename/format. Use Send file when you need the original file.
+
+Limits:
+- Copied source image file at most 16 MiB.
+- Canonical PNG at most 16 MiB.
+- Decoded RGBA at most 64 MiB.
+- Each dimension at most 16,384 pixels.
+
+Try Snipping Tool > Copy, context-menu Copy and Ctrl+C from supported apps,
+then cross back and paste in an image-capable app. The receiver publishes
+bitmap formats and a local PNG file representation for File Explorer paste.
+For an Explorer source, select exactly one local PNG, JPEG/JPG or static WebP
+file and use Ctrl+C or Copy. Folders, multiple-file selections, animated WebP,
+UNC shares and mapped network files are unsupported. Image clipboard does not
+require Allow file transfers and is not general file-copy authority.
+
+Switching between text and images, then recopying an earlier local value,
+should deliver each new permitted copy once. Received-image markers suppress
+reflection when Windows requests/publishes extra formats and metadata.
+
+Explorer compatibility retains private PNG images under:
+%LOCALAPPDATA%\EasyMouseConnect\clipboard-images
+At most four managed images of up to 16 MiB each are retained. They have Windows
+internet-zone marking and generated names. Later updates can evict old files;
+save a permanent copy elsewhere rather than depending on a cache path. Current
+clipboard references are protected, so a full/unwritable cache can reject an
+update. Cached image bytes are ordinary user data, not DPAPI-encrypted identity
+storage. They remain private and are excluded from logs, diagnostic ZIPs and
+source packages. Disabling sharing stops synchronization, not copies already
+placed on a clipboard or saved by another app.
 
 To send a file, enable Allow file transfers, drop a regular file into the app,
 click Send file, and approve the offer on the receiving PC. Each file must be
@@ -85,6 +135,25 @@ after receiver confirmation. If that acknowledgment is lost, inspect the
 receiver's transfer directory before retrying. Interrupted transfers do not
 resume automatically. Received files are never opened or executed automatically.
 Direct Explorer-to-Explorer dragging across PCs is not implemented.
+
+PREFERENCES AND STATUS
+Devices has matching Desk controls and Preferences columns. Keep the other PC
+awake starts OFF and must be enabled on BOTH PCs. It prevents peer display-off
+and idle sleep while you physically work on this PC. Activity stays eligible
+for 30 seconds, is signaled at most every three seconds and renews a 15-second
+receiver lease. Idle expiry, disconnect, Pause, Quit or disabling the option
+releases the request. It does NOT block Windows screen savers, security locks,
+manual sleep or organization policy. It sends no fake input and needs no service
+or elevated app.
+
+Show clipboard and network notifications also starts OFF. Clipboard messages
+are receive-only, with a 30-second cooldown; local copying creates no clipboard
+tray message. Network messages have a five-second cooldown. Queued events older
+than five seconds are discarded, not replayed as a late burst. Messages contain
+no copied text, image previews, names, IPs or paths. Windows notification
+settings/Focus Assist may hide them. Missing notifications alone
+do not mean a clipboard or connection failure. The Windows Preview footer opens
+the fixed project GitHub repository.
 
 DIAGNOSTICS AND REPORTS
 Open Diagnostics for routing state, network checks and input/processing
@@ -123,7 +192,9 @@ https://github.com/bigsk1/easy-mouse-connect/security/advisories/new
 UPDATE AND UNINSTALL
 Quit BOTH tray apps before installing an update, then use the same version
 on both PCs. Keep identity.dat and the existing pairing. Versions 0.2.0 through
-0.3.7 preserve established paired peers and per-user identity/settings data.
+0.4.1 preserve the version-1 identity/settings format and established peer keys.
+Versions 0.4.0/0.4.1 use the same EMC02 wire format; 0.3.7 cannot connect.
+Use the same 0.4.1 build on both PCs for the clipboard/notification fixes.
 Do not Forget device merely to upgrade.
 
 If saving settings fails, requested Stop/Pause and file/clipboard reductions
@@ -134,25 +205,44 @@ tray Quit to keep the app stopped while resolving profile write access.
 Uninstall through Windows Settings > Apps > Installed apps > Easy Mouse Connect
 Preview, or its Start menu uninstall entry. Quit the tray app first.
 Uninstall removes the installed app, shortcuts and registration. It preserves
-identities/settings, diagnostics and received files. The portable executable
+identities/settings, diagnostics, received files and cached clipboard images. The portable executable
 has no uninstall entry.
 
 CURRENT LIMITS
-This is an unsigned preview. An AI-assisted source review led to two policy
-fixes in 0.3.7; it is not an independent professional audit. Physical acceptance
-of this build remains pending. See docs/security-review.md in the source ZIP.
-Trust only PCs you intend to control your signed-in desktop. Pairing uses a short-lived code and SPAKE2 before
-Noise identity exchange; transport has no plaintext fallback.
+This is an unsigned Windows 11 x64 preview. A retained local 0.4.1 build has a
+maintainer report of approximately half a day of two-PC use behaving as expected.
+One keyboard interruption recovered after reselecting its Bluetooth host; the
+cause is unconfirmed. This normal-use report does not pass every image format,
+policy boundary, fault case or hardware/network configuration.
+
+GitHub release assets are separate CI-produced bytes from the release commit.
+Their SHA256SUMS.txt identifies this package, not the earlier local test package.
+The source inputs are compared with the retained tested runtime snapshot;
+matching source does not mean identical executable or source-ZIP hashes. A short
+downloaded-package install/reconnect/input/clipboard smoke check is follow-up
+evidence, separate from both CI compilation and the local normal-use report.
+The exact acceptance scope and retained local artifact hashes are documented
+in docs/manual-testing.md. Earlier 0.3.7 and 0.4.0 reports keep their own scopes.
+
+Follow docs/manual-testing.md in this source package for remaining checks.
+An AI-assisted source review of an earlier baseline is not an independent
+professional audit or a review of all new 0.4.1 behavior. See SECURITY.md and
+docs/security-review.md for the security model and review scope.
+
+Trust only PCs you intend to control your signed-in desktop. Pairing uses a
+short-lived code and SPAKE2 before Noise identity exchange; transport has no
+plaintext fallback. Existing pinned identities survive this update; an old
+legacy invitation is never an automatic fallback.
 
 Windows 11 x64 user-session input is the desktop target. UAC, the lock screen,
 secure desktops and elevated application control are outside supported scope.
-The app installs no service, requests no elevation and changes no global cursor
-or Windows security settings. Keep UAC enabled.
+The app installs no service, runs unelevated and changes no global cursor
+settings. Only the explicit peer-scoped firewall helper requests Windows
+administrator approval. It grants no secure-desktop control. Keep UAC enabled.
 
 Shell/fullscreen surfaces can cover the receiving cursor fallback. Intentional
 app cursor hiding may be overridden by that fallback. Source-pointer hiding,
-exact vertical return-position preservation, clipboard images, automatic
-discovery/NAT traversal and direct Explorer file dragging are not implemented.
+exact vertical return-position preservation, automatic discovery/NAT traversal and direct Explorer file dragging are not implemented.
 Vendor gestures and remapped/injected macros are not guaranteed. Unsupported
 absolute raw devices release control. Stale input, queue overload or native
 failure disconnects/releases instead of replaying backlog; the local budget

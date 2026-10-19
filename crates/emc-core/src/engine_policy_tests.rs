@@ -1,6 +1,9 @@
 use super::*;
 use tempfile::TempDir;
 
+#[path = "engine_preferences_tests.rs"]
+mod preferences_tests;
+
 struct PolicyFixture {
     engine: Engine,
     _root: TempDir,
@@ -34,6 +37,14 @@ impl PolicyFixture {
                 generation: 0,
                 bulk_generation: 0,
                 clipboard_revision: 0,
+                clipboard_content_revision: 0,
+                awake_revision: 0,
+                peer_activity: None,
+                clipboard_notice_serial: 0,
+                notification_revision: 0,
+                clipboard_notice: None,
+                clipboard_notice_at: None,
+                clipboard_notice_generation: None,
                 control: None,
                 control_stop: None,
                 bulk: None,
@@ -44,6 +55,7 @@ impl PolicyFixture {
                 pending: vec![],
                 decisions: HashMap::new(),
                 suppress_clipboard: None,
+                suppress_clipboard_image: None,
             }),
             address_hints: Mutex::new(vec![]),
             config_dir,
@@ -57,6 +69,8 @@ impl PolicyFixture {
             bulk_install_waiting: Notify::new(),
             bulk_retirement_waiting: Notify::new(),
             input_sink: Mutex::new(None),
+            image_sink: Mutex::new(None),
+            text_sink: Mutex::new(None),
             incoming: AsyncMutex::new(None),
             outgoing: AsyncMutex::new(()),
             pairing: AsyncMutex::new(()),
@@ -125,7 +139,11 @@ async fn sample(engine: &Engine, previous: &mut ClipboardBaseline, text: &str) {
         .unwrap();
 }
 
-async fn receive_text(engine: &Engine, rx: &mut mpsc::Receiver<Message>) -> String {
+async fn receive_bytes(
+    engine: &Engine,
+    rx: &mut mpsc::Receiver<Message>,
+    expected_kind: BulkKind,
+) -> Vec<u8> {
     let Message::Offer {
         id,
         name,
@@ -133,9 +151,9 @@ async fn receive_text(engine: &Engine, rx: &mut mpsc::Receiver<Message>) -> Stri
         kind,
     } = rx.recv().await.unwrap()
     else {
-        panic!("Expected a synthetic text offer");
+        panic!("Expected a synthetic clipboard offer");
     };
-    assert!(name.is_empty() && kind == BulkKind::Text);
+    assert!(name.is_empty() && kind == expected_kind);
     engine
         .state()
         .decisions
@@ -165,11 +183,15 @@ async fn receive_text(engine: &Engine, rx: &mut mpsc::Receiver<Message>) -> Stri
                     .unwrap()
                     .send(true)
                     .unwrap();
-                return String::from_utf8(bytes).unwrap();
+                return bytes;
             }
             message => panic!("Unexpected synthetic transfer message: {message:?}"),
         }
     }
+}
+
+async fn receive_text(engine: &Engine, rx: &mut mpsc::Receiver<Message>) -> String {
+    String::from_utf8(receive_bytes(engine, rx, BulkKind::Text).await).unwrap()
 }
 
 async fn sample_and_receive(
@@ -356,10 +378,20 @@ fn failed_save_cannot_enable_any_permission_or_apply_a_layout_change() {
             share_files: true,
             edge_switching: false,
             peer_on_left: true,
+            share_clipboard_images: true,
+            keep_peer_awake: true,
+            show_status_notifications: true,
         })
         .is_err());
     let settings = f.engine.status().settings;
-    assert!(!settings.enabled && !settings.share_clipboard && !settings.share_files);
+    assert!(
+        !settings.enabled
+            && !settings.share_clipboard
+            && !settings.share_files
+            && !settings.share_clipboard_images
+            && !settings.keep_peer_awake
+            && !settings.show_status_notifications
+    );
     assert!(settings.edge_switching && !settings.peer_on_left);
 }
 
@@ -523,4 +555,853 @@ async fn clipboard_filters_credentials_suppressed_content_and_unchanged_samples(
         "synthetic next local copy",
     )
     .await;
+}
+
+fn synthetic_image(value: u8) -> ClipboardImage {
+    ClipboardImage::new(1, 1, vec![value, 17, 31, 255]).unwrap()
+}
+
+fn image_fixture() -> PolicyFixture {
+    PolicyFixture::new(Settings {
+        share_clipboard_images: true,
+        ..Settings::default()
+    })
+}
+
+async fn image_sample(
+    engine: &Engine,
+    previous: &mut ImageBaseline,
+    image: Option<ClipboardImage>,
+) {
+    let hash = image.as_ref().map(ClipboardImage::digest);
+    let sequence = previous.as_ref().map_or(1, |(_, sequence, old)| {
+        if *old == hash {
+            *sequence
+        } else {
+            sequence.wrapping_add(1)
+        }
+    });
+    engine
+        .poll_clipboard_image_with(
+            previous,
+            std::future::ready(Ok(image_read(sequence, image))),
+        )
+        .await
+        .unwrap();
+}
+
+async fn image_sample_and_receive(
+    engine: &Engine,
+    previous: &mut ImageBaseline,
+    rx: &mut mpsc::Receiver<Message>,
+    image: ClipboardImage,
+) {
+    let notice = engine.notification_snapshot();
+    let expected = image.clone();
+    let sequence = previous
+        .as_ref()
+        .map_or(1, |(_, sequence, _)| sequence.wrapping_add(1));
+    let (sent, received) = timeout(Duration::from_secs(2), async {
+        tokio::join!(
+            engine.poll_clipboard_image_with(
+                previous,
+                std::future::ready(Ok(image_read(sequence, Some(image))))
+            ),
+            receive_bytes(engine, rx, BulkKind::Image)
+        )
+    })
+    .await
+    .unwrap();
+    sent.unwrap();
+    assert_eq!(ClipboardImage::from_png(&received).unwrap(), expected);
+    let after = engine.notification_snapshot();
+    assert_eq!(after.clipboard, notice.clipboard);
+    assert_eq!(after.clipboard_serial, notice.clipboard_serial);
+}
+
+fn image_read(sequence: u32, image: Option<ClipboardImage>) -> ClipboardImageSample {
+    ClipboardImageSample {
+        sequence,
+        current_sequence: sequence,
+        image,
+    }
+}
+
+#[tokio::test]
+async fn failed_save_image_and_awake_revocation_keeps_reductions_and_retires_authority() {
+    let f = PolicyFixture::new(Settings {
+        share_clipboard_images: true,
+        keep_peer_awake: true,
+        ..Settings::default()
+    });
+    let cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let (_, session) = f.engine.clipboard_session_for(BulkKind::Image).unwrap();
+    f.engine
+        .record_peer_activity(session.generation, Instant::now());
+    let revision = f.engine.state().awake_revision;
+    assert!(f.engine.state().peer_activity.is_some());
+    f.fail_saves();
+    let mut settings = f.engine.status().settings;
+    settings.share_clipboard_images = false;
+    settings.keep_peer_awake = false;
+    settings.share_files = true;
+    settings.show_status_notifications = true;
+    assert!(f
+        .engine
+        .update_settings(settings)
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("active for this run"));
+    let settings = f.engine.status().settings;
+    assert!(
+        !settings.share_clipboard_images
+            && !settings.keep_peer_awake
+            && !settings.share_files
+            && !settings.show_status_notifications
+    );
+    assert!(f.engine.state().peer_activity.is_none());
+    assert_ne!(f.engine.state().awake_revision, revision);
+    assert!(!*cancelled.borrow());
+    assert!(f
+        .engine
+        .send_image(synthetic_image(1), session)
+        .await
+        .is_err());
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn image_consent_is_independent_and_rejects_invalid_offer_bounds() {
+    let f = PolicyFixture::connected(); // Text/files enabled; images remain off.
+    let _cancelled = f.install_control();
+    let _rx = f.install_bulk();
+    let session = f.engine.bulk_session().unwrap();
+    let mut previous = None;
+    image_sample(&f.engine, &mut previous, Some(synthetic_image(1))).await;
+    assert!(previous.is_none());
+    let control = f.engine.state().control.clone().unwrap();
+    for (size, name) in [
+        (1, ""),
+        (0, ""),
+        (MAX_CLIPBOARD_IMAGE_BYTES as u64 + 1, ""),
+        (1, "peer.png"),
+    ] {
+        let id = random_id();
+        f.engine
+            .receive_bulk(
+                Message::Offer {
+                    id: id.clone(),
+                    name: name.into(),
+                    size,
+                    kind: BulkKind::Image,
+                },
+                session.generation,
+                session.bulk_generation,
+            )
+            .await
+            .unwrap();
+        let response = control.recv().await.unwrap();
+        assert!(
+            matches!(response.value, Message::Decision { id: refused, accept: false } if refused == id)
+        );
+        assert!(f.engine.0.incoming.lock().await.is_none());
+    }
+    assert!(f.engine.clipboard_session_for(BulkKind::Image).is_none());
+
+    let f = image_fixture(); // Image opt-in does not grant text/files.
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let session = f.engine.bulk_session().unwrap();
+    let control = f.engine.state().control.clone().unwrap();
+    for (size, name) in [
+        (0, ""),
+        (MAX_CLIPBOARD_IMAGE_BYTES as u64 + 1, ""),
+        (1, "peer.png"),
+    ] {
+        let id = random_id();
+        f.engine
+            .receive_bulk(
+                Message::Offer {
+                    id: id.clone(),
+                    name: name.into(),
+                    size,
+                    kind: BulkKind::Image,
+                },
+                session.generation,
+                session.bulk_generation,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(control.recv().await.unwrap().value,
+            Message::Decision { id: refused, accept: false } if refused == id));
+        assert!(f.engine.0.incoming.lock().await.is_none());
+    }
+    assert!(f.engine.clipboard_session().is_none());
+    let mut previous = None;
+    image_sample(&f.engine, &mut previous, None).await;
+    image_sample_and_receive(&f.engine, &mut previous, &mut rx, synthetic_image(2)).await;
+    assert!(!f.engine.status().settings.share_files && !f.engine.status().settings.share_clipboard);
+}
+
+#[tokio::test]
+async fn image_activation_baseline_unchanged_echo_and_later_copy_follow_pixels() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let mut previous = None;
+    let initial = synthetic_image(1);
+    image_sample(&f.engine, &mut previous, Some(initial.clone())).await;
+    image_sample(&f.engine, &mut previous, Some(initial)).await;
+    let remote = synthetic_image(2);
+    f.engine.state().suppress_clipboard_image = Some(remote.digest());
+    image_sample(&f.engine, &mut previous, Some(remote)).await;
+    assert!(rx.try_recv().is_err());
+    image_sample_and_receive(&f.engine, &mut previous, &mut rx, synthetic_image(3)).await;
+}
+
+#[tokio::test]
+async fn image_fast_off_on_and_reconnection_establish_new_baseline_without_inactive_poll() {
+    for replace_control in [false, true] {
+        let f = image_fixture();
+        let _cancelled = f.install_control();
+        let mut old_rx = f.install_bulk();
+        let mut previous = None;
+        image_sample(&f.engine, &mut previous, Some(synthetic_image(1))).await;
+        if replace_control {
+            f.engine.disconnect(EventCode::PeerDisconnected);
+            let _ = f.install_control();
+        } else {
+            let mut settings = f.engine.status().settings;
+            settings.share_clipboard_images = false;
+            f.engine.update_settings(settings.clone()).unwrap();
+            settings.share_clipboard_images = true;
+            f.engine.update_settings(settings).unwrap();
+        }
+        let mut fresh_rx = f.install_bulk();
+        image_sample(&f.engine, &mut previous, Some(synthetic_image(2))).await;
+        assert!(old_rx.try_recv().is_err() && fresh_rx.try_recv().is_err());
+        image_sample_and_receive(&f.engine, &mut previous, &mut fresh_rx, synthetic_image(3)).await;
+    }
+}
+
+#[tokio::test]
+async fn image_paused_read_cannot_cross_policy_or_session_replacement() {
+    for replace_control in [false, true] {
+        let f = image_fixture();
+        let _cancelled = f.install_control();
+        let mut old_rx = f.install_bulk();
+        let mut previous = None;
+        image_sample(&f.engine, &mut previous, Some(synthetic_image(1))).await;
+        let (began, started) = oneshot::channel();
+        let (resume, resumed) = oneshot::channel();
+        let read = async {
+            began.send(()).unwrap();
+            resumed.await.unwrap();
+            Ok(image_read(2, Some(synthetic_image(2))))
+        };
+        let change = async {
+            started.await.unwrap();
+            if replace_control {
+                f.engine.disconnect(EventCode::PeerDisconnected);
+                let _ = f.install_control();
+            } else {
+                let mut settings = f.engine.status().settings;
+                settings.share_clipboard_images = false;
+                f.engine.update_settings(settings.clone()).unwrap();
+                settings.share_clipboard_images = true;
+                f.engine.update_settings(settings).unwrap();
+            }
+            let rx = f.install_bulk();
+            resume.send(()).unwrap();
+            rx
+        };
+        let (result, mut fresh_rx) = tokio::join!(
+            f.engine.poll_clipboard_image_with(&mut previous, read),
+            change
+        );
+        result.unwrap();
+        assert!(previous.is_none());
+        assert!(old_rx.try_recv().is_err() && fresh_rx.try_recv().is_err());
+        image_sample(&f.engine, &mut previous, Some(synthetic_image(3))).await;
+        assert!(fresh_rx.try_recv().is_err());
+        image_sample_and_receive(&f.engine, &mut previous, &mut fresh_rx, synthetic_image(4)).await;
+    }
+}
+
+#[tokio::test]
+async fn image_captured_sender_never_offers_into_replacement_channel() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let mut old_rx = f.install_bulk();
+    let (_, captured) = f.engine.clipboard_session_for(BulkKind::Image).unwrap();
+    f.engine.disconnect(EventCode::PeerDisconnected);
+    let _cancelled = f.install_control();
+    let mut fresh_rx = f.install_bulk();
+    assert!(f
+        .engine
+        .send_image(synthetic_image(1), captured)
+        .await
+        .is_err());
+    assert!(old_rx.try_recv().is_err() && fresh_rx.try_recv().is_err());
+    assert!(f.engine.state().decisions.is_empty());
+}
+
+#[tokio::test]
+async fn image_receive_checks_hash_exact_length_and_revocation_at_actual_commit() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let _rx = f.install_bulk();
+    let session = f.engine.bulk_session().unwrap();
+    let control = f.engine.state().control.clone().unwrap();
+    let image = synthetic_image(1);
+    let expected = image.digest();
+    let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = writes.clone();
+    *f.engine.0.image_sink.lock().unwrap() = Some(Arc::new(move |prepared| {
+        assert_eq!(prepared.digest(), expected);
+        observed.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }));
+    let png = image.to_png().unwrap();
+    let id = random_id();
+    f.engine
+        .receive_bulk(
+            Message::Offer {
+                id: id.clone(),
+                name: String::new(),
+                size: png.len() as u64,
+                kind: BulkKind::Image,
+            },
+            session.generation,
+            session.bulk_generation,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        control.recv().await.unwrap().value,
+        Message::Decision { accept: true, .. }
+    ));
+    assert!(f
+        .engine
+        .receive_bulk(
+            Message::Complete {
+                id: id.clone(),
+                sha256: Sha256::digest(&png).into()
+            },
+            session.generation,
+            session.bulk_generation
+        )
+        .await
+        .is_err());
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    f.engine
+        .receive_bulk(
+            Message::Chunk {
+                id: id.clone(),
+                data: png.clone(),
+            },
+            session.generation,
+            session.bulk_generation,
+        )
+        .await
+        .unwrap();
+    assert!(f
+        .engine
+        .receive_bulk(
+            Message::Complete {
+                id: id.clone(),
+                sha256: [0; 32]
+            },
+            session.generation,
+            session.bulk_generation
+        )
+        .await
+        .is_err());
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    f.engine
+        .receive_bulk(
+            Message::Complete {
+                id: id.clone(),
+                sha256: Sha256::digest(&png).into(),
+            },
+            session.generation,
+            session.bulk_generation,
+        )
+        .await
+        .unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    assert!(
+        matches!(control.recv().await.unwrap().value, Message::Received { id: received } if received == id)
+    );
+    assert_eq!(
+        f.engine.notification_snapshot().clipboard,
+        Some(ClipboardNotice::ImageReceived)
+    );
+    assert!(
+        std::fs::read_dir(f.engine.0.config_dir.join("clipboard-images"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+
+    let prepared = emc_platform::clipboard_image::prepare_image(
+        synthetic_image(1),
+        &f.engine.0.config_dir.join("clipboard-images"),
+    )
+    .unwrap();
+    let mut settings = f.engine.status().settings;
+    settings.share_clipboard_images = false;
+    f.engine.update_settings(settings).unwrap();
+    assert!(f
+        .engine
+        .apply_clipboard_image(prepared, session.generation, session.bulk_generation)
+        .await
+        .is_err());
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    assert!(
+        std::fs::read_dir(f.engine.0.config_dir.join("clipboard-images"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn received_image_invalidates_pending_sample_and_old_unsent_offer() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let (_, captured) = f.engine.clipboard_session_for(BulkKind::Image).unwrap();
+    let session = f.engine.bulk_session().unwrap();
+    *f.engine.0.image_sink.lock().unwrap() = Some(Arc::new(|_| Ok(())));
+    let mut previous = None;
+    image_sample(&f.engine, &mut previous, Some(synthetic_image(1))).await;
+    let (began, started) = oneshot::channel();
+    let (resume, resumed) = oneshot::channel();
+    let read = async {
+        began.send(()).unwrap();
+        resumed.await.unwrap();
+        Ok(image_read(2, Some(synthetic_image(2))))
+    };
+    let receive = async {
+        started.await.unwrap();
+        let prepared = emc_platform::clipboard_image::prepare_image(
+            synthetic_image(3),
+            &f.engine.0.config_dir.join("clipboard-images"),
+        )
+        .unwrap();
+        f.engine
+            .apply_clipboard_image(prepared, session.generation, session.bulk_generation)
+            .await
+            .unwrap();
+        resume.send(()).unwrap();
+    };
+    let (result, ()) = tokio::join!(
+        f.engine.poll_clipboard_image_with(&mut previous, read),
+        receive
+    );
+    result.unwrap();
+    assert!(
+        previous.is_some(),
+        "A content write discards the read without retiring its activation baseline"
+    );
+    assert!(rx.try_recv().is_err());
+    assert!(f
+        .engine
+        .send_image(synthetic_image(2), captured)
+        .await
+        .is_err());
+    assert!(rx.try_recv().is_err());
+    image_sample(&f.engine, &mut previous, Some(synthetic_image(3))).await;
+    assert!(rx.try_recv().is_err());
+    image_sample_and_receive(&f.engine, &mut previous, &mut rx, synthetic_image(4)).await;
+}
+
+#[tokio::test]
+async fn queued_image_offer_rechecks_permission_after_waiting_for_capacity() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let (_, session) = f.engine.clipboard_session_for(BulkKind::Image).unwrap();
+    for _ in 0..8 {
+        session.tx.try_send(Message::Ready).unwrap();
+    }
+    let old_generation = session.bulk_generation;
+    let mut send = std::pin::pin!(f.engine.bulk(
+        &session,
+        Message::Offer {
+            id: random_id(),
+            name: String::new(),
+            size: 1,
+            kind: BulkKind::Image
+        }
+    ));
+    // Poll the real queue send until blocked on its full original channel.
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(
+            std::future::Future::poll(send.as_mut(), cx).is_pending()
+        ))
+        .await
+    );
+    let mut settings = f.engine.status().settings;
+    settings.share_clipboard_images = false;
+    f.engine.update_settings(settings).unwrap();
+    assert_ne!(f.engine.state().bulk_generation, old_generation);
+    assert!(matches!(rx.recv().await, Some(Message::Ready)));
+    assert!(send.await.is_err());
+    while let Ok(message) = rx.try_recv() {
+        assert!(matches!(message, Message::Ready));
+    }
+}
+
+#[tokio::test]
+async fn image_copy_of_same_pixels_resends_with_new_sequence_while_text_is_off() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    assert!(!f.engine.status().settings.share_clipboard);
+    let mut previous = None;
+    image_sample(&f.engine, &mut previous, None).await;
+    let image = synthetic_image(10);
+    image_sample_and_receive(&f.engine, &mut previous, &mut rx, image.clone()).await;
+    let serial = f.engine.notification_snapshot().clipboard_serial;
+    // A poll/read of the same native sequence is not another copy.
+    image_sample(&f.engine, &mut previous, Some(image.clone())).await;
+    assert!(rx.try_recv().is_err());
+    // The peer may replace its clipboard with local text while text sharing is
+    // off. A new local copy of identical pixels must still offer the image again.
+    image_sample_and_receive(&f.engine, &mut previous, &mut rx, image).await;
+    assert_eq!(f.engine.notification_snapshot().clipboard_serial, serial);
+}
+
+#[tokio::test]
+async fn image_read_uses_rendered_token_and_retries_clipboard_change_during_decode() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let mut previous = None;
+    f.engine
+        .poll_clipboard_image_with(&mut previous, std::future::ready(Ok(image_read(10, None))))
+        .await
+        .unwrap();
+    let image = synthetic_image(11);
+    // Rendering a delayed/synthesized format can advance the token during the
+    // locked read. The returned post-read token is the accepted sample's token.
+    let (sent, bytes) = timeout(Duration::from_secs(2), async {
+        tokio::join!(
+            f.engine.poll_clipboard_image_with(
+                &mut previous,
+                std::future::ready(Ok(image_read(12, Some(image.clone()))))
+            ),
+            receive_bytes(&f.engine, &mut rx, BulkKind::Image)
+        )
+    })
+    .await
+    .unwrap();
+    sent.unwrap();
+    assert_eq!(ClipboardImage::from_png(&bytes).unwrap(), image);
+    assert_eq!(previous.as_ref().unwrap().1, 12);
+    f.engine
+        .poll_clipboard_image_with(
+            &mut previous,
+            std::future::ready(Ok(image_read(12, Some(image)))),
+        )
+        .await
+        .unwrap();
+    assert!(rx.try_recv().is_err());
+
+    let before = previous;
+    let stale = ClipboardImageSample {
+        sequence: 13,
+        current_sequence: 14,
+        image: Some(synthetic_image(13)),
+    };
+    f.engine
+        .poll_clipboard_image_with(&mut previous, std::future::ready(Ok(stale)))
+        .await
+        .unwrap();
+    assert_eq!(
+        previous, before,
+        "A decode crossing a new clipboard write cannot advance the baseline"
+    );
+    assert!(rx.try_recv().is_err());
+    let expected = synthetic_image(14);
+    let (sent, bytes) = timeout(Duration::from_secs(2), async {
+        tokio::join!(
+            f.engine.poll_clipboard_image_with(
+                &mut previous,
+                std::future::ready(Ok(image_read(14, Some(expected.clone()))))
+            ),
+            receive_bytes(&f.engine, &mut rx, BulkKind::Image)
+        )
+    })
+    .await
+    .unwrap();
+    sent.unwrap();
+    assert_eq!(ClipboardImage::from_png(&bytes).unwrap(), expected);
+}
+
+#[tokio::test]
+async fn failed_image_publication_attempt_invalidates_pending_read_and_unsent_offer() {
+    let f = image_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let (_, captured) = f.engine.clipboard_session_for(BulkKind::Image).unwrap();
+    let session = f.engine.bulk_session().unwrap();
+    let mut previous = None;
+    image_sample(&f.engine, &mut previous, Some(synthetic_image(1))).await;
+    let revision = f.engine.state().clipboard_content_revision;
+    let attempted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = attempted.clone();
+    *f.engine.0.image_sink.lock().unwrap() = Some(Arc::new(move |_| {
+        observed.store(true, Ordering::SeqCst);
+        bail!("Synthetic failure after an earlier clipboard format changed")
+    }));
+    let (began, started) = oneshot::channel();
+    let (resume, resumed) = oneshot::channel();
+    let read = async {
+        began.send(()).unwrap();
+        resumed.await.unwrap();
+        Ok(image_read(2, Some(synthetic_image(2))))
+    };
+    let receive = async {
+        started.await.unwrap();
+        let prepared = emc_platform::clipboard_image::prepare_image(
+            synthetic_image(3),
+            &f.engine.0.config_dir.join("clipboard-images"),
+        )
+        .unwrap();
+        assert!(f
+            .engine
+            .apply_clipboard_image(prepared, session.generation, session.bulk_generation)
+            .await
+            .is_err());
+        resume.send(()).unwrap();
+    };
+    let (result, ()) = tokio::join!(
+        f.engine.poll_clipboard_image_with(&mut previous, read),
+        receive
+    );
+    result.unwrap();
+    assert!(attempted.load(Ordering::SeqCst));
+    assert_ne!(f.engine.state().clipboard_content_revision, revision);
+    assert!(
+        previous.is_some(),
+        "A failed content write must not reactivate clipboard sharing"
+    );
+    assert!(rx.try_recv().is_err());
+    assert!(f
+        .engine
+        .send_image(synthetic_image(2), captured)
+        .await
+        .is_err());
+    assert!(rx.try_recv().is_err());
+    assert_eq!(f.engine.notification_snapshot().clipboard_serial, 0);
+    assert!(
+        std::fs::read_dir(f.engine.0.config_dir.join("clipboard-images"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+}
+
+fn dual_clipboard_fixture() -> PolicyFixture {
+    let f = PolicyFixture::new(Settings {
+        share_clipboard: true,
+        share_clipboard_images: true,
+        ..Settings::default()
+    });
+    *f.engine.0.text_sink.lock().unwrap() = Some(Arc::new(|_| Ok(())));
+    *f.engine.0.image_sink.lock().unwrap() = Some(Arc::new(|_| Ok(())));
+    f
+}
+
+async fn receive_clipboard_data(engine: &Engine, kind: BulkKind, bytes: Vec<u8>) {
+    assert!(matches!(kind, BulkKind::Text | BulkKind::Image));
+    let session = engine.bulk_session().unwrap();
+    let control = engine.state().control.clone().unwrap();
+    let id = random_id();
+    engine
+        .receive_bulk(
+            Message::Offer {
+                id: id.clone(),
+                name: String::new(),
+                size: bytes.len() as u64,
+                kind,
+            },
+            session.generation,
+            session.bulk_generation,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(control.recv().await.unwrap().value,
+        Message::Decision { id: accepted, accept: true } if accepted == id));
+    for chunk in bytes.chunks(CHUNK_BYTES) {
+        engine
+            .receive_bulk(
+                Message::Chunk {
+                    id: id.clone(),
+                    data: chunk.to_vec(),
+                },
+                session.generation,
+                session.bulk_generation,
+            )
+            .await
+            .unwrap();
+    }
+    engine
+        .receive_bulk(
+            Message::Complete {
+                id: id.clone(),
+                sha256: Sha256::digest(&bytes).into(),
+            },
+            session.generation,
+            session.bulk_generation,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(control.recv().await.unwrap().value,
+        Message::Received { id: received } if received == id));
+}
+
+#[tokio::test]
+async fn received_image_does_not_rebaseline_the_next_local_text_copy() {
+    let f = dual_clipboard_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let mut previous = None;
+    sample(&f.engine, &mut previous, "synthetic existing text baseline").await;
+    receive_clipboard_data(
+        &f.engine,
+        BulkKind::Image,
+        synthetic_image(10).to_png().unwrap(),
+    )
+    .await;
+    // The native image write removes CF_UNICODETEXT. A no-text poll must not
+    // convert the next local text copy into a new activation baseline.
+    f.engine
+        .poll_clipboard_with(&mut previous, std::future::ready(None))
+        .await
+        .unwrap();
+    sample_and_receive(
+        &f.engine,
+        &mut previous,
+        &mut rx,
+        "synthetic first text after received image",
+    )
+    .await;
+    assert_eq!(
+        f.engine.notification_snapshot().clipboard,
+        Some(ClipboardNotice::ImageReceived)
+    );
+}
+
+#[tokio::test]
+async fn received_text_does_not_rebaseline_an_image_copied_before_the_next_poll() {
+    let f = dual_clipboard_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let mut previous = None;
+    image_sample(&f.engine, &mut previous, Some(synthetic_image(1))).await;
+    receive_clipboard_data(
+        &f.engine,
+        BulkKind::Text,
+        b"synthetic received text".to_vec(),
+    )
+    .await;
+    // A new local image may be copied before an intervening image-absence poll.
+    image_sample_and_receive(&f.engine, &mut previous, &mut rx, synthetic_image(2)).await;
+    assert_eq!(
+        f.engine.notification_snapshot().clipboard,
+        Some(ClipboardNotice::TextReceived)
+    );
+}
+
+#[tokio::test]
+async fn received_image_discards_paused_text_read_and_old_offer_without_losing_activation() {
+    let f = dual_clipboard_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let (_, captured) = f.engine.clipboard_session().unwrap();
+    let mut previous = None;
+    sample(&f.engine, &mut previous, "synthetic initial text baseline").await;
+    let baseline = previous;
+    let (began, started) = oneshot::channel();
+    let (resume, resumed) = oneshot::channel();
+    let read = async {
+        began.send(()).unwrap();
+        resumed.await.unwrap();
+        Some("synthetic stale text sampled before image".to_string())
+    };
+    let receive = async {
+        started.await.unwrap();
+        receive_clipboard_data(
+            &f.engine,
+            BulkKind::Image,
+            synthetic_image(3).to_png().unwrap(),
+        )
+        .await;
+        resume.send(()).unwrap();
+    };
+    let (result, ()) = tokio::join!(f.engine.poll_clipboard_with(&mut previous, read), receive);
+    result.unwrap();
+    assert_eq!(previous, baseline);
+    assert!(rx.try_recv().is_err());
+    assert!(f
+        .engine
+        .send_text("synthetic old captured text".into(), captured)
+        .await
+        .is_err());
+    assert!(rx.try_recv().is_err());
+    sample_and_receive(
+        &f.engine,
+        &mut previous,
+        &mut rx,
+        "synthetic fresh text after image commit",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn received_text_discards_paused_image_read_and_old_offer_without_losing_activation() {
+    let f = dual_clipboard_fixture();
+    let _cancelled = f.install_control();
+    let mut rx = f.install_bulk();
+    let (_, captured) = f.engine.clipboard_session_for(BulkKind::Image).unwrap();
+    let mut previous = None;
+    image_sample(&f.engine, &mut previous, Some(synthetic_image(1))).await;
+    let baseline = previous;
+    let (began, started) = oneshot::channel();
+    let (resume, resumed) = oneshot::channel();
+    let read = async {
+        began.send(()).unwrap();
+        resumed.await.unwrap();
+        Ok(image_read(2, Some(synthetic_image(2))))
+    };
+    let receive = async {
+        started.await.unwrap();
+        receive_clipboard_data(
+            &f.engine,
+            BulkKind::Text,
+            b"synthetic text during image decode".to_vec(),
+        )
+        .await;
+        resume.send(()).unwrap();
+    };
+    let (result, ()) = tokio::join!(
+        f.engine.poll_clipboard_image_with(&mut previous, read),
+        receive
+    );
+    result.unwrap();
+    assert_eq!(previous, baseline);
+    assert!(rx.try_recv().is_err());
+    assert!(f
+        .engine
+        .send_image(synthetic_image(2), captured)
+        .await
+        .is_err());
+    assert!(rx.try_recv().is_err());
+    image_sample_and_receive(&f.engine, &mut previous, &mut rx, synthetic_image(3)).await;
 }

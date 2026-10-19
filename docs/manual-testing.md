@@ -2,11 +2,11 @@
 
 Use this checklist to test a build on your own pair of Windows PCs or to verify a change before release. Record the build and environment, then exercise the features and recovery paths relevant to your setup. Advanced fault-injection cases belong in an isolated development fixture, not an installed paired session.
 
-**Current preview status:** 0.3.5 has limited two-PC confirmation for mouse crossing, keyboard input, scrolling, Start-menu cursor visibility and basic app-based **Send file** transfer. Version 0.3.6 updates diagnostic ZIP dependencies and 0.3.7 fixes settings/clipboard policy without changing native input-routing logic. Both need physical acceptance as new builds. The full acceptance matrix remains incomplete. Clipboard sharing, file limits and failure policies, emergency/local release, and the wider hardware/network cases still need explicit results.
+**Current test status:** the retained local 0.4.1 preview has a limited maintainer report of approximately half a day of two-PC use behaving as expected. One keyboard interruption recovered after reselecting its Bluetooth host; the cause is unconfirmed. This local-build report and the separate CI-produced release installer smoke check have different scopes. The earlier local 0.4.0 has only the limited [Snipping Tool-to-Explorer image-copy confirmation](#confirmed-040-image-copy-checks) below. The published 0.3.7 GitHub preview has reported two-PC confirmation for screen crossing, typing, rapid scrolling, very fast mouse movement, basic app-based **Send file**, and remote-to-local text clipboard sharing. The [confirmed release checks](#confirmed-037-release-checks) describe exactly what is covered. Version 0.3.5 remains the preserved native-input comparison baseline; 0.3.7 has its own reported physical results. The full acceptance matrix remains incomplete.
 
 Portable tests, browser fixtures and compilation complement these physical checks. Record each case actually exercised; a passed result on one setup or revision does not pass a different setup or later implementation. See [development and verification](development.md) for repeatable checks and [architecture](architecture.md) for the current input and session contracts.
 
-Use non-sensitive accounts/content for the initial run. Keep a local keyboard/mouse on each PC. Verify the local emergency shortcut before moving control remotely. Use the same application revision on both PCs and preserve redacted failure details.
+Use non-sensitive accounts/content for the initial run. Keep a local keyboard/mouse on each PC. Verify the local emergency shortcut before moving control remotely. Use the same application revision on both PCs and preserve redacted failure details. Versions 0.4.0 and 0.4.1 share the `EMC02` wire format and do not connect to 0.3.7. Use the same 0.4.1 build on both PCs for the clipboard fixes, while retaining existing identities/pairing.
 
 Before updating, fully Quit both processes from their tray menus; the window's X hides it instead of exiting. Install the same update on both PCs and preserve `%LOCALAPPDATA%\EasyMouseConnect\identity.dat`. An existing pairing should reconnect with its original pinned identity, without Forget device. Test fresh short-code pairing using separate clean test profiles when needed; never delete an established identity just to create a test case.
 
@@ -15,6 +15,90 @@ Before updating, fully Quit both processes from their tray menus; the window's X
 Windows 11 x64 is the desktop target; both PCs need not run the same feature version or cumulative build. Record each PC's Windows version/build from `winver`, app version, WebView2 version, mouse/keyboard connection and relevant display/DPI/network settings. These details help reproduce failures without requiring every monthly build combination to be tested before a preview.
 
 Two PCs are the minimum hardware setup, rather than the entire acceptance matrix. A representative preview check covers both directions, typing/modifiers and emergency release, fast/freewheel scrolling, the actual multi-monitor layout, Pause/Quit, reconnect after a network interruption or sleep/wake, and any enabled clipboard/file flow. Record broader edge cases below as passed, failed or untested. An automated Windows Server CI build is not a Windows 11 desktop acceptance result.
+
+## Confirmed 0.3.7 release checks
+
+Build under test: the published [GitHub v0.3.7 preview](https://github.com/bigsk1/easy-mouse-connect/releases/tag/v0.3.7), installed on both PCs in one Windows 11 x64 setup. These are maintainer-reported interactive results, separate from CI and the older 0.3.5 observations.
+
+| Case | Reported result |
+| --- | --- |
+| GitHub preview installation | The release installs and runs on both PCs. |
+| Screen crossing and return | Remote control and return to local control work, with behavior consistent with the working input baseline. |
+| Keyboard input | Typing on the controlled PC works. Ctrl+C also works in the clipboard flows below. |
+| Rapid wheel scrolling | Fast scrolling remains usable without an observed routing failure in these checks. |
+| Very fast mouse movement | Very fast movement remains usable without an observed routing failure in these checks. No polling rate or end-to-end latency measurement is recorded. |
+| App-based file transfer | Sending a file between the PCs completes successfully. Transfer size, both directions, limits and interruption cases are not established by this result. |
+| Context-menu clipboard copy | Highlight text on the controlled PC, choose right-click Copy, cross back to the controlling PC and paste: the expected text arrives. |
+| Keyboard clipboard copy | Highlight text on the controlled PC, press Ctrl+C, cross back to the controlling PC and paste: the expected text arrives. |
+
+The clipboard results cover the controlled PC to the controlling PC; reverse-direction clipboard sharing is not established by this report. Exact Windows builds, WebView2 versions, per-display DPI, network path and test duration are not recorded for these release checks. Earlier setup details do not substitute for a completed environment record.
+
+The wider matrix below remains available for subsequent checks. Clipboard off/on and reconnect boundaries, persistence failures, transfer bounds/consent/interruption/integrity, emergency release, sleep/wake, other display/driver configurations and routed/Tailscale paths need their own results. Ordinary successful use does not establish those failure-path or compatibility cases. Potential quirks without confirmed reproduction remain follow-up observations, rather than diagnosed regressions.
+
+## Confirmed 0.4.0 image-copy checks
+
+Build under test: the earlier local 0.4.0 preview on the two Windows PCs. The reported case is **copy an image with the Snipping Tool, then paste into File Explorer on the other PC**, repeated successfully in both directions. This is limited confirmation of the screenshot-to-Explorer workflow, not a claim of clipboard reliability over time or of all source/target formats.
+
+Copying PNG/JPEG/WebP image files from Explorer is not established by this result and was reported not working with that build. Repeated transitions between text and images also require the new regression cases below. These observations do not pass 0.4.1, image bounds/cache/privacy/policy cases, original-file preservation or the wider input/feature matrix. The published 0.3.7 build retains its separate confirmed scope above.
+
+## Confirmed 0.4.1 local-build use
+
+Build under test: the retained locally built 0.4.1 preview, installed on the two Windows PCs. The maintainer reports approximately **half a day of use**, with behavior as expected. The report includes one keyboard interruption that recovered after reselecting the keyboard's Bluetooth host. There is no confirmed engine, Bluetooth, driver or network diagnosis for that interruption.
+
+This is normal-use evidence, not a case-by-case pass of the matrix below. It does not separately establish every PNG/JPEG/WebP source/target format, clipboard boundary/revocation/echo test, cache limit/marking failure, keep-awake timer, notification expiry, UAC cancellation, network path or recovery case. Exact Windows builds, per-display DPI, WebView2 versions and measured latency are not recorded by this report. Earlier 0.3.7 and 0.4.0 checks retain their original scopes.
+
+The following retained artifacts identify the local package supplied for that run. Their bytes are preserved and the hashes are verified against the retained files; the installed copies on the two PCs were not independently hashed during this documentation update.
+
+| Retained local 0.4.1 artifact | SHA-256 |
+| --- | --- |
+| `EasyMouseConnect-0.4.1-preview-setup.exe` | `8f1b4c9a01722b5e194a21f460e4b97bad10ed3ba269b3fdadea55267c6a5a35` |
+| `easy-mouse-connect.exe` | `d78cc271a33651715aee7173a9f1f2d8fac30749ea89184a4cef0da3436ece40` |
+| `Easy-Mouse-Connect-source-0.4.1-preview.zip` | `ead388c7e71d0126e833661d130634d1c64c0e6507ecbed0593a19d5053e6237` |
+
+### CI release and download smoke check
+
+GitHub release assets are a separate CI build from the release commit, including updated public documentation. Compare runtime source inputs with the retained tested snapshot before release; matching source is not a claim that the new executable/source ZIP hashes match these local artifacts. The release's own `SHA256SUMS.txt` identifies its files. Preserve the local package and record CI artifact provenance separately.
+
+After the public package is available, download its installer, verify its release checksum and perform a short two-PC install/reconnect/input/clipboard smoke check. Record the downloaded installer hash and actual cases exercised here. This post-publication check is follow-up evidence; it is not already passed by the local normal-use report or CI compilation, and it does not require claiming the entire matrix complete before publication.
+
+## 0.4.1 feature acceptance checklist
+
+Install the same 0.4.1 package on both PCs after fully quitting both old tray processes. Preserve the current identities and pairing. Record the exact local or CI-produced package SHA-256 and mark every case below passed, failed or untested. The normal-use report above does not mark these individual cases passed; each earlier build report also retains its own scope.
+
+Start by repeating crossing/return, typing/modifier release, rapid scrolling, very fast movement, basic **Send file** and text-copy flows against the current tested release reference. New optional features start off; enable only the feature under test. After enabling it, copy a fresh non-sensitive value rather than relying on pre-existing clipboard state.
+
+| Case | Procedure | Pass condition |
+| --- | --- | --- |
+| Both-PC upgrade | Record both public keys, Quit both apps, install the same 0.4.1 package and reconnect | Existing keys/pairing retained; no Forget device or new invitation required |
+| Wire compatibility | Use isolated peers/fixtures for 0.3.7 against 0.4.1 and for 0.4.0 against 0.4.1 | 0.3.7 rejected; 0.4.0 uses the same EMC02 format; no fallback or identity replacement; normal acceptance uses the same 0.4.1 build on both PCs |
+| Defaults and independent permissions | Upgrade an older test profile and inspect all new toggles; enable images with text/files off, then test the reverse combinations | New image/keep-awake/notification settings default off; text, images and consent-based files remain independently authorized |
+| Snipping Tool and copy actions | Copy small screenshots and supported app images using Snipping Tool Copy, context-menu Copy and Ctrl+C; paste in each direction | The new image pastes once with expected pixels/dimensions; record each supported source/target action separately |
+| Explorer image-file copy | Copy one nonsensitive local PNG, JPEG/JPG or static WebP file in Explorer using Ctrl+C/context-menu Copy; paste remotely into an image app and Explorer, both directions | Image transfers through image permission as a generated PNG with expected pixels; no extra prompt, original filename/format not preserved |
+| Source file bounds and unsupported sources | Use isolated fixtures at/above 16 MiB source length, a corrupt/nonimage file, animated WebP, a folder/multiple-file selection and UNC/mapped-network locations | Only one supported regular local file within bounds is decoded; unsupported/network selections rejected or ignored without general-file authority or input stalls |
+| Original file unchanged | Send a JPEG/WebP through explicit Send file with recipient consent | Original bytes/name retained by file transfer; no claim that image clipboard preserves the source file |
+| Cross-kind sequence | Copy/paste text A, screenshot A, text B, local image file B and text A again; repeat both directions with relevant independent toggles | Each new permitted copy arrives once; changing kind does not discard its first value or replay a previous kind |
+| Recopy and received marker | Copy image A, then text, then image A again; separately receive an image and allow Windows to request/publish extra clipboard formats | A genuine local recopy arrives once; received marker/format changes alone never echo image metadata or generate an idle transfer loop |
+| Application bitmap paste | Test opaque and transparent images with orientation/color fixtures in ordinary image-capable applications | Bitmap/PNG formats are usable; no inversion, color-channel swap or unexpected alpha loss |
+| Explorer screenshot paste | Copy a screenshot remotely, cross back and paste into a test Explorer directory; repeat opposite direction | A PNG file is pasted, with expected image content and zone 3 metadata; no separate arbitrary-file transfer is authorized |
+| Image bounds | Use controlled fixtures below, equal to and above 16 MiB source file/canonical PNG, 64 MiB decoded RGBA and 16,384 pixels per dimension; test corrupt/unsupported formats in isolation | Valid in-bound content accepted; each exceeded/invalid bound rejected without UI/input stall or excessive allocation |
+| Text bounds unchanged | With image sharing off, copy ASCII/Unicode fixtures below, equal to and above 1 MiB UTF-8 | Up to 1,048,576 bytes accepted; larger text rejected; no truncation or extra text-size preference |
+| Image echo | Alternate text/images locally and remotely, including sources exposing more than one clipboard format; leave both apps idle after paste | One accepted update; no image/file-format reflection loop, repeated notification loop or continued network transfers at idle |
+| Activation and revocation | Enable images with old clipboard data present; copy fresh data, then disable on either side and repeat fast off/on, Pause, disconnect and reconnect while a fixture is pending | Baselines do not send old content; old reads/offers/completions cannot apply under revoked/replacement authority; text policy remains independent |
+| Cache bounds and referenced files | Receive at least six distinct fixture images and inspect `clipboard-images`, including a currently referenced image | At most four managed final PNGs of at most 16 MiB each; only generated managed entries evicted; current clipboard references preserved or update rejected safely |
+| Cache failure/privacy | Use isolated unwritable/cache-full/zone-marking-failure fixtures; inspect sanitized exports/source package | No unmarked published file or reported successful failed application; no image bytes/cache paths in diagnostics or cache files in exports/source ZIP |
+| Clipboard contention and input | Hold clipboard open in a test app, copy a large permitted image while typing/scrolling/crossing, then release contention | Failure/retry remains bounded off hooks; local release and ordinary input remain usable; no stale image replay |
+| Keep-awake active lease | Enable Keep the other PC awake on both PCs, use short test display-off/idle-sleep timers and remain physically active on the controller | Receiver display-off/idle sleep is inhibited while permitted activity renews the lease; record behavior for both controlling directions |
+| Keep-awake expiry and policy | Stop local activity beyond the 30-second activity window and 15-second receiver lease; separately disable on either PC, Pause, disconnect and Quit | Lease expires or clears and normal display/sleep policy resumes; no retained power request in the ended session |
+| Screen saver and security lock | Keep awake enabled while exercising a screen saver and ordinary/managed security lock policy | Screen saver/lock remain effective; no synthetic input, service, elevated control or policy override |
+| Optional tray notifications | Enable on one PC, copy locally, receive text/images, connect/disconnect and generate a burst; then turn off | Clipboard messages only for received updates, with a 30-second clipboard cooldown; network cooldown five seconds; no contents/previews/addresses/names/paths; disabled means no optional messages |
+| Notification expiry and coalescing | In an isolated notification fixture delay dispatch past five seconds, queue text/image bursts and disable/re-enable before drain | Old events discarded without a delayed burst; at most the current eligible generic event per cooldown; disabled-period events are not replayed |
+| Notification suppression | Repeat with Windows notification suppression/Focus Assist enabled | Content still transfers normally; missing Windows presentation is recorded separately from transfer success |
+| Scoped firewall action | On an authorized test PC, enter a literal peer IPv4/IPv6 or stored endpoint in Troubleshooting and approve Windows UAC; inspect the resulting rule | Fixed current executable, exact peer host, inbound TCP 24859 and Private/Domain only; app process stays unelevated |
+| Firewall cancellation and invalid input | Cancel UAC; try DNS, wildcard, subnet and command-shaped input; repeat an identical allowed request | Cancellation/invalid input changes no rule; no command execution; no duplicate broadening, firewall disable or Public-profile exception |
+| Firewall during connection/setup | Test before pairing, with an unavailable input engine and while connected; edit address during status polling | Explicit action only; user-edited address retained; at most one pending helper; error shown as text; no new pairing/input authority |
+| Settings layout and project link | Inspect Devices and Troubleshooting at supported window sizes; activate Windows Preview by keyboard and mouse | Balanced equal-height control panels when side by side, responsive stacking and fixed project URL only |
+
+Use synthetic fixtures for malformed image/channel/policy races. Native UAC application is a separate deliberate firewall-policy change; a dry-run or mocked command proves no actual rule was installed. Keep private screenshot pixels and clipboard values out of the result record.
 
 ## Record the environment
 
@@ -94,7 +178,7 @@ Windows firewall profiles / scoped rule used:
 
 ## Registration, handoff and responsiveness
 
-Run the same build on both PCs, using 0.3.5 as the comparison baseline for later input changes. Keep the current pairing and quit both old tray processes before installing. Isolated native contracts do not replace the following physical tests. Fault injection belongs in an isolated native test account/build; do not modify live hook state, registration or renderer resources on a paired session just to collect a pass.
+Run the same build on both PCs, using the published 0.3.7 build as the current tested release reference and retaining 0.3.5 as the original native-input baseline. Keep the current pairing and quit both old tray processes before installing. Isolated native contracts do not replace the following physical tests. Fault injection belongs in an isolated native test account/build; do not modify live hook state, registration or renderer resources on a paired session just to collect a pass.
 
 | Case | Procedure | Pass condition |
 | --- | --- | --- |
@@ -147,11 +231,11 @@ After reproducing, export the ZIP while the first app is running, Quit it, switc
 
 ## Clipboard and file transfer cases
 
-The basic app-based **Send file** flow is confirmed on 0.3.5. The default destination is `%USERPROFILE%\Downloads\EasyMouseConnect\<transfer-id>\<filename>`; each transfer uses a generated child folder. File-size boundaries, integrity comparisons, consent/rejection, policy changes and interrupted/concurrent transfers still need their own results. Clipboard sharing remains unconfirmed on this version.
+Basic app-based **Send file** and controlled-to-controlling-PC text clipboard have the limited [0.3.7 results above](#confirmed-037-release-checks); these results do not independently pass 0.4.1 cases. The separate limited 0.4.0 screenshot-to-Explorer result does not pass its follow-up changes, and the 0.4.1 normal-use report is not a detailed transfer-policy result. The default destination is `%USERPROFILE%\Downloads\EasyMouseConnect\<transfer-id>\<filename>`; each transfer uses a generated child folder. File-size boundaries, integrity comparisons, consent/rejection, policy changes and interrupted/concurrent transfers still need their own results. Reverse clipboard and the remaining bounds/policy/fault cases need separate results.
 
 | Case | Procedure | Pass condition |
 | --- | --- | --- |
-| Defaults | Fresh profiles, copy local text | Clipboard/file sharing remains off until enabled |
+| Defaults | Fresh profiles, copy local text/images | Text/image clipboard and file sharing remain off until independently enabled |
 | Clipboard both ways | Enable on both PCs; copy plain/Unicode text each way | Exactly one application per update; no endless echo |
 | Clipboard policy | Disable on either side during a session | No further forbidden send or receive applications |
 | Clipboard bounds | Try just under, equal to and above 1 MiB UTF-8 text | Behavior matches byte limit; app responsive on rejection |
@@ -190,7 +274,8 @@ The basic app-based **Send file** flow is confirmed on 0.3.5. The default destin
 | Latest export | Export twice; copy the first elsewhere before the second if comparison is needed | One app-managed diagnostic-exports/emc-diagnostics.zip, replaced on later export |
 | Startup failure diagnostics | Use an isolated profile with a controlled identity/native-startup failure | Actual error shown; local diagnostic metadata/export/known-folder open still available; no false connection/input state |
 | Uninstall | Uninstall after receiving files | Behavior documented; user data is not unexpectedly erased |
-| Firewall | Apply helper with -WhatIf and an exact peer; review rule | Only requested executable/IP/TCP port/Domain+Private profiles appear |
+| Firewall script | Apply helper with -WhatIf and an exact peer; review rule | Only requested executable/IP/TCP port/Domain+Private profiles appear; no change occurs in dry-run |
+| Firewall UI | Use Troubleshooting with a literal peer and deliberate Windows approval; inspect rule, then exercise cancellation | Current executable, fixed TCP 24859, exact peer and Domain/Private only; app stays unelevated; cancel changes nothing |
 
 Report failed cases with revision, minimal steps, observed behavior and redacted diagnostics. Do not mark a row passed solely because a unit test covers a related function.
 

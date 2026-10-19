@@ -26,6 +26,7 @@ Thumbs.db
 /received/
 logs/
 diagnostic-exports/
+clipboard-images/
 emc-diagnostics*.zip
 identity.dat
 identity.dat.*

@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod notifications;
+mod support;
 use emc_core::{
     diagnostics::{DiagnosticLog, DiagnosticStatus},
     Engine, Settings, Status,
@@ -12,6 +14,8 @@ use tauri::{
 struct Desktop {
     engine: Result<Engine, String>,
     export_lock: tokio::sync::Mutex<()>,
+    firewall_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    status_notices: std::sync::Mutex<notifications::StatusNotifications>,
 }
 impl Desktop {
     fn engine(&self) -> Result<Engine, String> {
@@ -19,6 +23,31 @@ impl Desktop {
     }
 }
 type CommandResult<T> = Result<T, String>;
+
+#[tauri::command]
+fn open_project_url() -> CommandResult<()> {
+    support::open_project()
+}
+
+#[tauri::command]
+async fn add_peer_firewall_rule(
+    state: State<'_, Desktop>,
+    address: String,
+) -> CommandResult<String> {
+    let peer = support::peer_ip(&address)?;
+    let guard = state
+        .firewall_lock
+        .clone()
+        .try_lock_owned()
+        .map_err(|_| "The Windows firewall helper is already running.".to_string())?;
+    tokio::task::spawn_blocking(move || {
+        // Ownership follows the OS helper if the WebView request is cancelled.
+        let _guard = guard;
+        support::add_firewall_rule(peer)
+    })
+    .await
+    .map_err(|_| "The Windows firewall helper could not complete.".to_string())?
+}
 
 // A small local facade keeps all policy in the Rust engine.
 #[tauri::command]
@@ -258,7 +287,19 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     tauri::async_runtime::spawn(async move {
         let mut previous = None;
         loop {
-            let status = handle.state::<Desktop>().engine().ok().map(|e| e.status());
+            let engine = handle.state::<Desktop>().engine().ok();
+            if let Some(engine) = &engine {
+                handle
+                    .state::<Desktop>()
+                    .status_notices
+                    .lock()
+                    .unwrap()
+                    .poll(&engine.notification_snapshot());
+                if engine.is_shutting_down() {
+                    break;
+                }
+            }
+            let status = engine.map(|e| e.status());
             let enabled = status.as_ref().map(|s| s.enabled);
             let recovery = status.as_ref().is_some_and(|s| {
                 s.enabled
@@ -302,9 +343,20 @@ fn main() {
         .setup(|app| {
             let engine =
                 tauri::async_runtime::block_on(Engine::start()).map_err(|e| format!("{e:#}"));
+            #[cfg(windows)]
+            let notification_window = app
+                .get_webview_window("main")
+                .and_then(|window| window.hwnd().ok())
+                .map_or(0, |window| window.0 as usize);
+            #[cfg(not(windows))]
+            let notification_window = 0;
             app.manage(Desktop {
                 engine,
                 export_lock: tokio::sync::Mutex::new(()),
+                firewall_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+                status_notices: std::sync::Mutex::new(notifications::StatusNotifications::new(
+                    notification_window,
+                )),
             });
             create_tray(app)?;
             Ok(())
@@ -332,7 +384,9 @@ fn main() {
             diagnostics,
             export_diagnostics,
             open_log_folder,
-            open_export_folder
+            open_export_folder,
+            open_project_url,
+            add_peer_firewall_rule
         ])
         .build(tauri::generate_context!())
         .expect("Unable to start Easy Mouse Connect");
@@ -347,6 +401,11 @@ fn main() {
     };
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
+            app.state::<Desktop>()
+                .status_notices
+                .lock()
+                .unwrap()
+                .clear();
             if let Ok(engine) = app.state::<Desktop>().engine() {
                 engine.shutdown();
             }

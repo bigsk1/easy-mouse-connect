@@ -90,12 +90,24 @@ async function runPreviewChecks(url) {
 
   for (const [name, heading] of [
     ['Sharing', 'Share what you need.'], ['Security', 'Private, from the start.'],
-    ['Diagnostics', 'Connection, in focus.'], ['Devices', 'Your desk, connected.'],
+    ['Diagnostics', 'Connection, in focus.'], ['Troubleshooting', 'Get connected.'], ['Devices', 'Your desk, connected.'],
   ]) {
     await navigateToPage(page, name);
     assert.equal(await page.getByRole('heading', { name: heading, exact: true }).isVisible(), true);
     if (name === 'Diagnostics') await screenshot(page, 'diagnostics-preview.png');
+    if (name === 'Troubleshooting') {
+      assert.equal(await page.locator('#add-firewall-rule').isEnabled(), false);
+      assert.equal(await page.locator('#firewall-address').isEnabled(), false);
+      assert.equal(await page.locator('#firewall-preview-note').isVisible(), true);
+      assert.match(await page.locator('.firewall-scope').textContent(), /TCP 24859.*One peer IP.*Private \/ Domain/);
+      await screenshot(page, 'troubleshooting-preview.png');
+    }
   }
+
+  const projectLink = page.getByRole('link', { name: 'Windows Preview · Open project on GitHub', exact: true });
+  assert.equal(await projectLink.getAttribute('href'), 'https://github.com/bigsk1/easy-mouse-connect');
+  assert.equal(await projectLink.getAttribute('target'), '_blank');
+  assert.match(await projectLink.getAttribute('rel'), /noopener/);
 
   const pairButton = page.getByRole('button', { name: 'Pair a device', exact: true });
   assert.equal(await pairButton.count(), 1);
@@ -117,10 +129,14 @@ async function runPreviewChecks(url) {
 
   for (const width of [390, 760, 1024, 1280]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const name of ['Devices', 'Sharing', 'Security', 'Diagnostics']) {
+    for (const name of ['Devices', 'Sharing', 'Security', 'Diagnostics', 'Troubleshooting']) {
       await navigateToPage(page, name);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
       assert.equal(overflow, false, `Horizontal overflow at ${width}px on ${name}`);
+      if (name === 'Devices' && width > 650) {
+        const heights = await page.locator('.overview-grid>.panel').evaluateAll((panels) => panels.map((panel) => panel.getBoundingClientRect().height));
+        assert.ok(Math.abs(heights[0] - heights[1]) <= 1, `Desk controls and Preferences must have equal heights at ${width}px`);
+      }
     }
     if (width === 390) {
       await navigateToPage(page, 'Devices');
@@ -130,7 +146,7 @@ async function runPreviewChecks(url) {
   }
   assert.deepEqual(errors, [], 'Unexpected browser JavaScript errors in preview');
   await context.close(); activePage = null;
-  console.log('PASS browser preview: honest unavailable state, four pages, modal/focus, responsive layouts (390/760/1024/1280px).');
+  console.log('PASS browser preview: honest unavailable state, five pages, scoped setup action, fixed project link, equal control panels, modal/focus, responsive layouts (390/760/1024/1280px).');
 }
 
 function installSyntheticNativeBridge({ failStatus = false } = {}) {
@@ -177,6 +193,16 @@ function installSyntheticNativeBridge({ failStatus = false } = {}) {
       }
       if (command === 'respond_file') uiTest.status.pending_files = uiTest.status.pending_files.filter((file) => file.id !== args.id);
       if (command === 'diagnostics') return 'Synthetic diagnostic <b>literal text</b>';
+      if (command === 'add_peer_firewall_rule') {
+        if (uiTest.firewallError) throw uiTest.firewallError;
+        if (uiTest.deferFirewall) return new Promise((resolve) => {
+          uiTest.finishFirewall = () => {
+            uiTest.deferFirewall = false;
+            resolve('Synthetic firewall rule <b>added</b>');
+          };
+        });
+        return 'Synthetic firewall rule added.';
+      }
       if (command === 'export_diagnostics') return 'C:\\SyntheticUiFixture\\Exports\\diagnostics.zip';
       if (command === 'emergency_stop') {
         uiTest.status.settings.enabled = false; uiTest.status.enabled = false; uiTest.status.connected = false;
@@ -195,6 +221,19 @@ async function runSyntheticNativeChecks(url) {
   assert.equal(await page.locator('#connection-pill span').textContent(), 'Ready to pair');
   assert.equal(await page.locator('#preview-banner').isVisible(), false);
   assert.equal(await page.getByRole('checkbox', { name: 'Enable desk sharing', exact: true }).isChecked(), true);
+  // Older stored settings omit these fields; the UI must never infer permission.
+  for (const name of ['Keep the other PC awake', 'Show clipboard and network notifications']) {
+    assert.equal(await page.getByRole('checkbox', { name, exact: true }).isChecked(), false);
+  }
+  await page.getByRole('checkbox', { name: 'Keep the other PC awake', exact: true }).check();
+  await page.waitForFunction(() => uiTest.status.settings.keep_peer_awake);
+  await page.getByRole('checkbox', { name: 'Show clipboard and network notifications', exact: true }).check();
+  await page.waitForFunction(() => uiTest.status.settings.show_status_notifications);
+  assert.match(await page.locator('#keep-awake-scope').textContent(), /screen saver and lock settings stay in effect/);
+  await page.getByRole('link', { name: 'Windows Preview · Open project on GitHub', exact: true }).click();
+  assert.equal(await page.evaluate(() => uiTest.calls.some((call) => call.command === 'open_project_url')), true);
+  assert.equal(await page.evaluate(() => uiTest.calls.find((call) => call.command === 'open_project_url').args), undefined, 'Project opener must not accept a frontend URL');
+
   await page.getByRole('button', { name: 'Pair a device', exact: true }).click();
   await page.getByRole('tab', { name: 'Show a pairing code', exact: true }).click();
   assert.equal(await page.locator('#invitation-content').isVisible(), false, 'Do not reveal a prior invitation without explicit generation');
@@ -234,9 +273,42 @@ async function runSyntheticNativeChecks(url) {
   await page.waitForFunction(() => uiTest.status.settings.peer_on_left);
   assert.equal(await page.getByRole('button', { name: 'Peer on left', exact: true }).getAttribute('aria-pressed'), 'true');
 
+  await navigateToPage(page, 'Troubleshooting');
+  assert.equal(await page.locator('#firewall-address').inputValue(), '100.71.9.14', 'A paired endpoint should prefill the setup field');
+  assert.equal(await page.evaluate(() => uiTest.calls.some((call) => call.command === 'add_peer_firewall_rule')), false, 'Firewall setup requires an explicit action');
+  await page.locator('#firewall-address').fill(' [2001:db8::20]:24859 ');
+  const firewallStatusCalls = await page.evaluate(() => uiTest.calls.filter((call) => call.command === 'get_status').length);
+  await page.waitForFunction((count) => uiTest.calls.filter((call) => call.command === 'get_status').length > count, firewallStatusCalls);
+  assert.equal(await page.locator('#firewall-address').inputValue(), ' [2001:db8::20]:24859 ', 'Polling must preserve the user-edited firewall endpoint');
+  await page.evaluate(() => { uiTest.deferFirewall = true; });
+  await page.getByRole('button', { name: 'Add a firewall rule', exact: true }).click();
+  await page.waitForFunction(() => typeof uiTest.finishFirewall === 'function');
+  assert.equal(await page.locator('#add-firewall-rule').isEnabled(), false);
+  assert.equal(await page.locator('#firewall-address').isEnabled(), false);
+  assert.match(await page.locator('#firewall-result').textContent(), /Waiting for Windows administrator approval/);
+  await page.evaluate(() => document.querySelector('#firewall-form').requestSubmit());
+  assert.equal(await page.evaluate(() => uiTest.calls.filter((call) => call.command === 'add_peer_firewall_rule').length), 1, 'A pending UAC action must not start a second helper');
+  assert.deepEqual(await page.evaluate(() => uiTest.calls.find((call) => call.command === 'add_peer_firewall_rule').args), { address: '[2001:db8::20]:24859' }, 'The native helper only receives a trimmed address');
+  await page.evaluate(() => uiTest.finishFirewall());
+  await page.waitForFunction(() => !document.querySelector('#add-firewall-rule').disabled);
+  assert.equal(await page.locator('#firewall-result').textContent(), 'Synthetic firewall rule <b>added</b>');
+  assert.equal(await page.locator('#firewall-result b').count(), 0);
+  await page.evaluate(() => { uiTest.firewallError = 'Windows approval was cancelled <b>literal</b>'; });
+  await page.getByRole('button', { name: 'Add a firewall rule', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#firewall-result').classList.contains('error'));
+  assert.equal(await page.locator('#firewall-result').textContent(), 'Windows approval was cancelled <b>literal</b>');
+  assert.equal(await page.locator('#firewall-result b').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Add a firewall rule', exact: true }).isEnabled(), true);
+  await screenshot(page, 'troubleshooting-native.png');
+
   await navigateToPage(page, 'Sharing');
   assert.equal(await page.getByRole('checkbox', { name: 'Share plain-text clipboard', exact: true }).isChecked(), false);
   assert.equal(await page.getByRole('checkbox', { name: 'Allow file transfers', exact: true }).isChecked(), false);
+  assert.equal(await page.getByRole('checkbox', { name: 'Share image clipboard', exact: true }).isChecked(), false);
+  await page.getByRole('checkbox', { name: 'Share image clipboard', exact: true }).check();
+  await page.waitForFunction(() => uiTest.status.settings.share_clipboard_images);
+  assert.equal(await page.getByRole('checkbox', { name: 'Share plain-text clipboard', exact: true }).isChecked(), false, 'Image permission must remain independent of plain text');
+  assert.equal(await page.getByRole('checkbox', { name: 'Allow file transfers', exact: true }).isChecked(), false, 'Image permission must remain independent of files');
   await page.getByRole('checkbox', { name: 'Share plain-text clipboard', exact: true }).check();
   await page.waitForFunction(() => uiTest.status.settings.share_clipboard);
   await page.getByRole('checkbox', { name: 'Allow file transfers', exact: true }).check();
@@ -351,7 +423,7 @@ async function runSyntheticNativeChecks(url) {
   assert.equal(await page.getByRole('checkbox', { name: 'Enable desk sharing', exact: true }).isEnabled(), true);
   assert.deepEqual(errors, [], 'Unexpected browser JavaScript errors with the synthetic bridge');
   await context.close(); activePage = null;
-  console.log('PASS synthetic native bridge: typed pairing code/copy/privacy, pairing, polling, settings, safe text, explicit send/accept, local diagnostics/export, IPv6 diagnostics, emergency stop, engine failure/recovery.');
+  console.log('PASS synthetic native bridge: typed pairing code/copy/privacy, pairing, polling, legacy defaults/new settings, fixed project opener, scoped firewall action/prefill/UAC wait/error, safe text, explicit send/accept, local diagnostics/export, IPv6 diagnostics, emergency stop, engine failure/recovery.');
 }
 
 async function runStartupFailureChecks(url) {
@@ -380,9 +452,17 @@ async function runStartupFailureChecks(url) {
   await navigateToPage(page, 'Devices');
   assert.equal(await page.getByRole('checkbox', { name: 'Enable desk sharing', exact: true }).isEnabled(), false);
   assert.equal(await page.locator('#remote-machine').isVisible(), false);
+  await navigateToPage(page, 'Troubleshooting');
+  assert.equal(await page.locator('#firewall-address').inputValue(), '', 'An unpaired setup must not invent a peer address');
+  assert.equal(await page.locator('#add-firewall-rule').isEnabled(), false);
+  assert.equal(await page.locator('#firewall-address').isEnabled(), true, 'Connection setup remains usable when the engine is unavailable');
+  await page.locator('#firewall-address').fill('192.0.2.20');
+  await page.getByRole('button', { name: 'Add a firewall rule', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#firewall-result').textContent === 'Synthetic firewall rule added.');
+  assert.deepEqual(await page.evaluate(() => uiTest.calls.find((call) => call.command === 'add_peer_firewall_rule').args), { address: '192.0.2.20' });
   assert.deepEqual(errors, []);
   await context.close(); activePage = null;
-  console.log('PASS synthetic startup failure: actual error shown, logs/export/folder remain available, connection/input controls stay unavailable.');
+  console.log('PASS synthetic startup failure: actual error shown, logs/export/folder and unpaired firewall setup remain available, connection/input controls stay unavailable.');
 }
 
 async function cleanup() {

@@ -3,10 +3,14 @@
 //! Windows is the supported interactive platform. Other platforms can build the
 //! protocol/core and run tests, but do not install hooks or inject input.
 
+pub mod clipboard_image;
+
 #[cfg(not(windows))]
 use anyhow::Result;
 
 pub const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
+
+pub mod awake;
 
 /// Content-free native failure categories. OS injection errors retain their
 /// typed std::io::Error sources instead of being replaced with these categories.

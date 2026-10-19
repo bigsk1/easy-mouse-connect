@@ -15,18 +15,27 @@ use zeroize::Zeroizing;
 pub struct Settings {
     pub enabled: bool,
     pub share_clipboard: bool,
+    #[serde(default)]
+    pub share_clipboard_images: bool,
     pub share_files: bool,
     pub edge_switching: bool,
     pub peer_on_left: bool,
+    #[serde(default)]
+    pub keep_peer_awake: bool,
+    #[serde(default)]
+    pub show_status_notifications: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
             enabled: true,
             share_clipboard: false,
+            share_clipboard_images: false,
             share_files: false,
             edge_switching: true,
             peer_on_left: false,
+            keep_peer_awake: false,
+            show_status_notifications: false,
         }
     }
 }
@@ -53,6 +62,42 @@ impl Drop for Config {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalSettings {
+    enabled: bool,
+    share_clipboard: bool,
+    share_files: bool,
+    edge_switching: bool,
+    peer_on_left: bool,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct Preferences {
+    share_clipboard_images: bool,
+    keep_peer_awake: bool,
+    show_status_notifications: bool,
+}
+
+#[derive(Deserialize)]
+struct PreferenceExtension {
+    #[serde(default)]
+    preferences: Preferences,
+}
+
+#[derive(Serialize)]
+struct StoredConfig<'a> {
+    version: u32,
+    device_name: &'a str,
+    private_key: &'a [u8],
+    public_key: &'a [u8; 32],
+    peer: &'a Option<Peer>,
+    initiator: bool,
+    settings: OriginalSettings,
+    preferences: Preferences,
+}
+
 impl Config {
     pub fn load(root: &Path) -> Result<Self> {
         let path = root.join("identity.dat");
@@ -63,8 +108,16 @@ impl Config {
             );
             let protected = fs::read(path)?;
             let plain = Zeroizing::new(emc_platform::unprotect_secret(&protected)?);
-            let config: Self = serde_json::from_slice(&plain)
+            let mut config: Self = serde_json::from_slice(&plain)
                 .context("Cannot read identity; refusing to silently regenerate keys")?;
+            // Keep the original five nested settings fields readable by 0.3.7.
+            // New preferences occupy an optional top-level extension, which
+            // older version-1 readers ignore without replacing trust or keys.
+            let extension: PreferenceExtension = serde_json::from_slice(&plain)?;
+            config.settings.share_clipboard_images = extension.preferences.share_clipboard_images;
+            config.settings.keep_peer_awake = extension.preferences.keep_peer_awake;
+            config.settings.show_status_notifications =
+                extension.preferences.show_status_notifications;
             ensure!(
                 config.version == 1 && config.private_key.len() == 32,
                 "Unsupported identity version"
@@ -100,7 +153,26 @@ impl Config {
         Ok(config)
     }
     pub fn save(&self, root: &Path) -> Result<()> {
-        let plain = Zeroizing::new(serde_json::to_vec(self)?);
+        let plain = Zeroizing::new(serde_json::to_vec(&StoredConfig {
+            version: self.version,
+            device_name: &self.device_name,
+            private_key: &self.private_key,
+            public_key: &self.public_key,
+            peer: &self.peer,
+            initiator: self.initiator,
+            settings: OriginalSettings {
+                enabled: self.settings.enabled,
+                share_clipboard: self.settings.share_clipboard,
+                share_files: self.settings.share_files,
+                edge_switching: self.settings.edge_switching,
+                peer_on_left: self.settings.peer_on_left,
+            },
+            preferences: Preferences {
+                share_clipboard_images: self.settings.share_clipboard_images,
+                keep_peer_awake: self.settings.keep_peer_awake,
+                show_status_notifications: self.settings.show_status_notifications,
+            },
+        })?);
         let protected = emc_platform::protect_secret(&plain)?;
         let path = root.join("identity.tmp");
         let mut options = fs::OpenOptions::new();
@@ -201,5 +273,64 @@ mod tests {
         assert_eq!(a.public_key, b.public_key);
         fs::write(root.path().join("identity.dat"), b"broken").unwrap();
         assert!(Config::load(root.path()).is_err());
+    }
+
+    #[test]
+    fn old_settings_default_new_permissions_off() {
+        let original = r#"{"enabled":true,"share_clipboard":true,"share_files":false,"edge_switching":true,"peer_on_left":false}"#;
+        let settings: Settings = serde_json::from_str(original).unwrap();
+        assert!(settings.share_clipboard);
+        assert!(!settings.share_clipboard_images);
+        assert!(!settings.keep_peer_awake);
+        assert!(!settings.show_status_notifications);
+    }
+
+    #[test]
+    fn preferences_roundtrip_without_breaking_original_v1_readers() {
+        let root = tempfile::tempdir().unwrap();
+        let mut original = Config::load(root.path()).unwrap();
+        original.initiator = true;
+        original.peer = Some(Peer {
+            name: "synthetic migration peer".into(),
+            public_key: encode_key(&[9; 32]),
+            address: "127.0.0.1:24859".into(),
+        });
+        original.settings.share_clipboard_images = true;
+        original.settings.keep_peer_awake = true;
+        original.settings.show_status_notifications = true;
+        original.save(root.path()).unwrap();
+        let current = Config::load(root.path()).unwrap();
+        assert_eq!(current.public_key, original.public_key);
+        assert_eq!(current.private_key, original.private_key);
+        assert!(current.initiator);
+        assert_eq!(
+            current.peer.as_ref().unwrap().public_key,
+            original.peer.as_ref().unwrap().public_key
+        );
+        assert!(current.settings.share_clipboard_images);
+        assert!(current.settings.keep_peer_awake);
+        assert!(current.settings.show_status_notifications);
+
+        // A model of the old strict nested settings reader still accepts the
+        // updated file. The extension is outside its known settings object.
+        #[derive(Deserialize)]
+        struct OriginalReader {
+            version: u32,
+            public_key: [u8; 32],
+            initiator: bool,
+            peer: Option<Peer>,
+            settings: OriginalSettings,
+        }
+        let protected = fs::read(root.path().join("identity.dat")).unwrap();
+        let plain = Zeroizing::new(emc_platform::unprotect_secret(&protected).unwrap());
+        let old: OriginalReader = serde_json::from_slice(&plain).unwrap();
+        assert_eq!(old.version, 1);
+        assert_eq!(old.public_key, original.public_key);
+        assert!(old.initiator);
+        assert_eq!(
+            old.peer.as_ref().unwrap().public_key,
+            original.peer.as_ref().unwrap().public_key
+        );
+        assert!(old.settings.enabled);
     }
 }

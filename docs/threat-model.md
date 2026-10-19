@@ -36,7 +36,7 @@ Channel 3 uses RustCrypto SPAKE2 0.4/Ed25519Group, then HKDF-SHA256 over its sha
 
 Every reconnecting control and bulk channel independently authenticates pinned keys with Noise IK. Addresses, names and an already-open socket do not establish authority for another channel. Installation rechecks identity, generation, enabled/shutdown state and the still-valid pairing window before persisting trust. Revocation must terminate active authority as well as future reconnects. A confirmation failure can leave asymmetric local pairing state, which needs deliberate recovery rather than automatic trust replacement.
 
-Version-1 DPAPI identity/settings data and existing IK peers are preserved through 0.3.7. Upgrading does not require resetting identity or forgetting a trusted peer. Incoming legacy channel-0 pairing is rejected and no new legacy invitation is generated. An explicit outbound `emc1` import branch is compatibility code, never a downgrade after PAKE failure. See [protocol](protocol.md) for exact framing and binding.
+Version-1 DPAPI identity/settings data and existing IK peers are preserved through 0.4.1. Upgrading does not require resetting identity or forgetting a trusted peer. Versions 0.4.0/0.4.1 use EMC02 and do not connect to the older EMC01 protocol in 0.3.7. Incoming legacy channel-0 pairing is rejected and no new legacy invitation is generated. An explicit outbound `emc1` import branch is compatibility code, never a downgrade after PAKE failure. See [protocol](protocol.md) for exact framing and binding.
 
 ## Session generations and bulk ownership
 
@@ -80,6 +80,12 @@ Close hides the settings window while sharing continues. Pause/Stop sharing ends
 
 Clipboard sharing defaults off, requires policy on both peers and limits text to 1 MiB of UTF-8. Existing content is not sent immediately on activation. Credential-shaped invitation/code text is conservatively excluded. Encryption does not make an enabled peer safe to receive secrets copied during sharing.
 
+Image sharing is independently opt-in. Clipboard pixels or one copied regular local PNG/JPEG/static WebP file become canonical PNG, without preserving the source name, path or metadata and without another recipient prompt. The source and transferred PNG each stay within 16 MiB, decoded RGBA within 64 MiB, and dimensions within 16,384 pixels. Container ranges and pixel dimensions are validated before decoding; malformed metadata cannot use an unchecked declared length to allocate memory. No peer-provided path is opened, and image authority excludes network sources and general file lists.
+
+Activation baselines and content revisions have separate roles: received writes invalidate pending reads/Offers without swallowing the next local copy of the other kind. A received-image marker suppresses matching pixels after metadata-only changes. A third-party restore that strips provenance remains indistinguishable from a new copy; the app does not infer another application's intent. Image publication rechecks current generations and permission after conversion/cache work, and acknowledges only after native application.
+
+Explorer paste uses generated, marked PNG files under the known local image cache. Retention is at most four managed images of at most 16 MiB each, protecting current clipboard references and leaving unrelated files alone. These files contain private pixels and are not DPAPI-encrypted. They are excluded from diagnostic/source exports. Revocation prevents future synchronization but cannot retract a clipboard or a file already received.
+
 Files default off and require recipient consent. Declared/actual sizes must stay **strictly below 100,000,000 bytes**. Peer names are bounded safe basenames, excluding traversal, alternate data streams, control characters and reserved Windows names. Each transfer uses a generated child under `Downloads/EasyMouseConnect`; existing directories/files cannot be overwritten.
 
 Completion requires exact byte count and SHA-256. Windows internet-zone metadata is applied to the temporary file before final rename under current generation/policy. Marking failure, revocation, truncation and mismatch cannot leave a successful unmarked final file. Only committed application/save earns `Received`, which the sender needs before reporting success. That acknowledgment is the authenticated peer's assertion, not proof of endpoint honesty. Accepted files can contain malware and are never auto-opened/executed. No resumable transfer authority crosses reconnect.
@@ -93,6 +99,8 @@ Export is an explicit local action. It reparses/allowlists bounded records and n
 Exports preserve valid original numeric versions, distinguishing current logger-open/live counters from retained engine starts. Versions and clocks are untrusted operational metadata. Monitor count/virtual dimensions can appear as numbers; review archives and screenshots before public attachment. Processing and insertion-backend durations cannot reconstruct content or identify every exact syscall/target-app delay. Local UI error messages are separate and may need redaction.
 
 The WebView loads local resources, displays peer-provided values as text and exposes narrow Rust commands. Sharing authorization, content limits and file commit checks remain in Rust even if frontend checks are bypassed.
+
+The project link is fixed. Only an explicit firewall action can request UAC for a compiled, peer-scoped helper; no frontend-selected command/program or broad firewall authority is exposed. Keep-awake grants a short authenticated activity lease for display/idle-sleep requests, without synthetic input or a lock-policy override. Optional notifications use generic status and bounded freshness/cooldowns; shell presentation is outside the transfer authority.
 
 ## Scope and remaining assurance work
 

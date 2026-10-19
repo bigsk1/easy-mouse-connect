@@ -13,7 +13,7 @@ Published Windows x64 previews appear in [GitHub Releases](https://github.com/bi
 Download assets from one release. Compare a downloaded file with its entry in `SHA256SUMS.txt` using PowerShell:
 
 ```powershell
-Get-FileHash .\EasyMouseConnect-0.3.7-preview-setup.exe -Algorithm SHA256
+Get-FileHash .\EasyMouseConnect-0.4.1-preview-setup.exe -Algorithm SHA256
 ```
 
 Checksums identify matching bytes; they are not a publisher signature or a reproducible-build claim. GitHub's automatic source archives are separate from the explicitly sanitized source ZIP. Before upgrading, Quit both tray apps and retain protected identity/settings data. Existing `Easy Mouse Connect Preview` installations use this same preview installer format. If Windows lists a separate **Easy Mouse Connect** installation from the normal Tauri installer, Quit and uninstall that installation before installing the preview; uninstall preserves identity/settings and received files.
@@ -37,6 +37,12 @@ The publisher runs only for a manual dispatch by the repository owner from `main
 
 ## Verification status
 
-The 0.3.5 baseline has limited two-PC Windows 11 mouse/keyboard/scrolling and basic file-send observations. The 0.3.6 dependency-maintenance build preserves the input-routing implementation; the source review uses that revision as its baseline. Version 0.3.7 applies surgical core-policy fixes from that review and still awaits physical acceptance. A successful CI/package build does not inherit hardware acceptance from 0.3.5.
+The local 0.4.1 package has a maintainer report of approximately half a day of ordinary two-PC use, behaving as expected. One keyboard interruption recovered after reselecting its Bluetooth host; the cause is unconfirmed. This is sufficient for the maintainer's preview-release decision, without passing unrecorded formats, fault cases, sleep/wake, network or hardware combinations. See the [0.4.1 test record](manual-testing.md#confirmed-041-local-build-use).
+
+The published 0.3.7 GitHub preview retains its separate physical confirmation on one Windows 11 x64 pair: screen crossing and local return, typing, rapid scrolling, very fast mouse movement, basic app-based file transfer, and remote-to-local text clipboard through context-menu Copy and Ctrl+C. See the [confirmed release checks](manual-testing.md#confirmed-037-release-checks) for that exact scope. Version 0.3.5 remains the preserved native-input comparison baseline.
+
+The accepted local 0.4.1 installer has SHA-256 `8f1b4c9a01722b5e194a21f460e4b97bad10ed3ba269b3fdadea55267c6a5a35`; its portable executable has SHA-256 `d78cc271a33651715aee7173a9f1f2d8fac30749ea89184a4cef0da3436ece40`. Release preparation preserves its runtime/frontend/build sources and lockfiles, with documentation updates only. The public release uses separately built, same-run CI assets and the release's own `SHA256SUMS.txt`. Local test observations do not make the CI executables byte-identical or pass their download/install smoke check. Preserve both sets of artifacts, and record GitHub-package acceptance separately.
+
+The older tested GitHub package remains identified by tag `v0.3.7` and its published checksums. Never replace published versioned assets or overwrite accepted local packages. Runtime changes require a new version and fresh acceptance.
 
 The [AI-assisted source review](security-review.md) is additional review evidence, not an independent professional security audit. It does not establish the absence of vulnerabilities or replace dependency review, adversarial runtime tests, installer review or the [hardware acceptance matrix](manual-testing.md). Record the exact revision and cases actually exercised. See [development](development.md), [SECURITY.md](../SECURITY.md) and the [threat model](threat-model.md) for the relevant boundaries.

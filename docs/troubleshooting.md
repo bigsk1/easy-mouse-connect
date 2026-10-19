@@ -10,22 +10,28 @@ To exit completely, choose tray **Quit Easy Mouse Connect**. The window's X only
 
 ## Settings cannot be saved
 
-Version 0.3.7 keeps requested Stop/Pause and file/clipboard permission reductions active for the current run even when saving fails. The error explains that the last saved permissions may return after restart. Permission increases and unrelated layout changes are not applied on an unsuccessful save. Use tray Quit if sharing must remain stopped, then check available storage and the current user's write access to the app profile. Preserve `identity.dat`; deleting identity data is not a settings-write repair.
+Requested Stop/Pause and file/clipboard permission reductions stay active for the current run even when saving fails. The error explains that the last saved permissions may return after restart. Permission increases and unrelated layout changes are not applied on an unsuccessful save. Use tray Quit if sharing must remain stopped, then check available storage and the current user's write access to the app profile. Preserve `identity.dat`; deleting identity data is not a settings-write repair.
 
 ## The PCs cannot connect
 
-1. Confirm that the receiving app is running, sharing is enabled, and the entered IP is the intended peer's reachable address. The listener uses TCP **24859**.
+1. Confirm both PCs run the same application build. Versions 0.4.0 and 0.4.1 use `EMC02` and do not connect to 0.3.7. They share the wire format; use the same 0.4.1 build on both PCs for the clipboard fixes and retain the existing pairing. Confirm that the receiving app is running, sharing is enabled, and the entered IP is the intended peer's reachable address. The listener uses TCP **24859**.
 2. Run the TCP check in [network setup](networking.md). A successful TCP connection proves reachability, not pairing or input authority. Ping failure alone is inconclusive.
 3. Check routing and host/network policy. Different LAN subnets need a route. Unrelated private networks need an existing VPN or other authorized route; entering a LAN IP does not create one. For Tailscale, both peers must be online, authorized and allowed by tailnet/host policy.
-4. Check the Windows network profile and any peer-scoped firewall rule. The app does not open firewall rules automatically. Do not disable Windows Firewall or expose the listener through internet port forwarding to make a test pass.
+4. Check the Windows network profile and any peer-scoped firewall rule. Use **Troubleshooting → Add a firewall rule** when a rule is missing. Enter one literal peer IP and approve the separate Windows prompt using local controls. The fixed helper permits only this executable and chosen peer on inbound TCP 24859 for Private/Domain profiles; the application itself remains unelevated. The app does not open firewall rules automatically. Do not disable Windows Firewall or expose the listener through internet port forwarding to make a test pass.
 
 The PC that originally entered the pairing code initiates automatic reconnect attempts every three seconds while enabled. Use manual **Reconnect** on that PC. The code-generating PC listens; it does not take over dialing after an outage. Displayed LAN/Tailscale addresses are address hints, not proof of a usable route, and can lag a network change by up to the normal 30-second refresh.
+
+## Firewall setup fails or Windows approval is cancelled
+
+A cancelled UAC prompt leaves the rule unchanged; retry only when you intend to approve it. The troubleshooting form accepts one literal IPv4/IPv6 peer address, including the host from a saved IP endpoint. It accepts no subnet, wildcard, DNS name, program path or PowerShell command. The rule's local port is always 24859. A browser preview cannot run this helper.
+
+Check the first local error, Windows account permissions, network profile and organization firewall policy. Public-profile networks are intentionally outside the rule. The helper does not disable Windows Firewall, create a route or grant elevated desktop control. Existing rules are Windows settings and persist until removed; changing the executable path or peer address may need a different rule. [Network setup](networking.md#windows-firewall) includes the script preview and removal procedure. Do not widen the rule to all peers/Public networks to hide a connectivity problem.
 
 ## Pairing fails or trust differs
 
 On the destination, use **Devices → Pair a device → Show a pairing code → Generate code**. Type its 12 characters and reachable IP on the initiating PC. Hyphens/capitalization are handled for you. A code lasts five minutes and admits at most five attempts; failed or abandoned attempts consume that budget. Generate a fresh code after either limit. Update both PCs before creating a new pairing.
 
-A changed device key must fail verification. Confirm that the correct per-user profile is running; do not delete identity data or bypass the mismatch. Versions 0.2.0 through 0.3.7 retain established paired identities/settings. If a new pairing was interrupted and only one side remembers the other, explicitly forget the incomplete pairing and pair again with a fresh code. Do not use that procedure for a working pair merely to upgrade.
+A changed device key must fail verification. Confirm that the correct per-user profile is running; do not delete identity data or bypass the mismatch. Versions 0.2.0 through 0.4.1 retain the version-1 protected identity/settings format and established paired keys. Both peers still need the same wire version. If a new pairing was interrupted and only one side remembers the other, explicitly forget the incomplete pairing and pair again with a fresh code. Do not use that procedure for a working pair merely to upgrade.
 
 An old `emc1` invitation is not a current short code. Current receivers do not accept new legacy-token pairing, and failed short-code pairing does not fall back to it or to plaintext. An established connection closing is also not proof of a failed handshake: route loss, local pause and native input failures can end an authenticated session. A locally known pause has its own policy category; remote EOF alone does not identify the peer's reason.
 
@@ -55,6 +61,8 @@ Counters are cumulative for the process, can differ across PCs, and reset at res
 ## Keyboard stays local or a held control blocks crossing
 
 Keep the mouse and keyboard hardware connected to the intended controller. Hardware-switching them to the receiver is separate from the app's routing. Compare **Local keyboard events**, **Forwarded key events** and the peer's **Injected key events**, along with the routing state and local-reclaim counters.
+
+If a Bluetooth keyboard stops responding, first confirm its selected host matches the PC you intend to use as the controller. Reselecting the intended keyboard host restored input during one 0.4.1 test interruption. That is a recovery observation, not a confirmed Bluetooth or engine diagnosis. If it repeats, note which PC had physical keyboard ownership, whether mouse routing still worked and the timing, then export both PCs' diagnostics without recording typed content.
 
 The app protects physically held keys/buttons. After a device switch or secure-desktop transition, the window/tray may ask for a local release. Release the actual control; if its UP was missed, press and release the affected modifier or mouse button locally. Another device's same-key hold must remain protected. A cleanup keyup alone does not reclaim remote control; a genuine physical keydown does.
 
@@ -96,9 +104,31 @@ UAC, the lock screen, secure desktops and elevated application control are outsi
 
 ## Clipboard is not syncing
 
-Enable **Share plain-text clipboard** on both PCs and confirm the authenticated bulk channel is ready. Copy new non-sensitive text after connecting: enabling sharing does not immediately send the old clipboard. Only plain text up to **1 MiB of UTF-8** is supported; images and larger text are not. Standalone pairing-code-shaped text and legacy invitations are filtered.
+Enable **Share plain-text clipboard** on both PCs and confirm the authenticated bulk channel is ready. Copy new non-sensitive text after connecting: enabling sharing does not immediately send the old clipboard. Text is limited to **1 MiB of UTF-8**; image clipboard uses its own separate permission and limits. Standalone pairing-code-shaped text and legacy invitations are filtered.
 
 If another app holds the clipboard open, retry after releasing it. Record failure counters and the exact local error without including clipboard contents. Do not dump the clipboard into a bug report or log.
+
+## A copied screenshot or image will not paste
+
+Enable **Sharing → Share image clipboard** on both PCs. This is independent of plain text and **Allow file transfers**. Copy a new non-sensitive screenshot after connecting or enabling the option, then paste into an ordinary image-capable application. Repeat with the Snipping Tool's Copy action and Ctrl+C where supported. The settings UI never needs access to the actual pixels.
+
+Images must encode as PNG within **16 MiB**, decode to RGBA within **64 MiB**, and have neither dimension above **16,384 pixels**. Source clipboard formats can be supported bitmap/PNG formats or one copied regular local PNG, JPEG or static WebP image file. Explorer file copy needs 0.4.1; the earlier 0.4.0 screenshot-to-Explorer result does not establish that source case. A target application's paste support can differ from another application's. Try a small screenshot in an image editor to separate target-format support from transport, then test Explorer paste separately. Transparency, orientation and image dimensions belong in a non-sensitive reproduction; do not attach private screenshots.
+
+To use an Explorer image file as the source, select exactly one local PNG/JPEG/static WebP file, press Ctrl+C or choose Copy, cross to the other PC and paste. Its source bytes must also fit 16 MiB. Image clipboard converts the pixels to a generated PNG without an extra prompt; it does not preserve the original name, compression or format. Use **Send file** with recipient approval to preserve an original JPEG/WebP file. Folders, multiple selections, UNC shares, mapped network files, animated WebP and other file types are unsupported by image clipboard. A private-network share being reachable does not make it an authorized clipboard image source.
+
+For Explorer paste, received images also create marked PNG files under `%LOCALAPPDATA%\EasyMouseConnect\clipboard-images`. At most four managed images of up to 16 MiB each are retained. Existing clipboard-referenced files are protected from eviction; a full or unwritable cache can reject the update. Later updates can remove older unreferenced entries, so save permanent copies elsewhere. These PNGs contain copied pixels, remain ordinary user data when sharing is disabled, and never belong in logs, diagnostic ZIPs or source exports. Disabling sharing stops new synchronization; it does not erase a clipboard value or an image already copied into another app.
+
+If another application owns the Windows clipboard, release it and copy the test screenshot again. A clipboard-format or cache error must not block the input hooks. On disconnect, policy changes or fast off/on, expect a fresh baseline rather than replay of an older image. Switching between text and images and then recopying an earlier local image should deliver each new permitted copy once. A received-image marker prevents extra clipboard metadata/format publication from echoing a received image. A missed cross-kind first copy, image echo or late old-session paste is a bug; record the direction and boundary without logging the image.
+
+## The other PC still sleeps or starts a screen saver
+
+Enable **Devices → Preferences → Keep the other PC awake** on both PCs and confirm the authenticated connection is active. Local physical activity is eligible for 30 seconds; at most one activity indication is sent every three seconds and each permitted receipt renews a 15-second receiver lease. No continuing activity means the lease expires. Disconnection, Pause and disabling the preference clear the current lease.
+
+The option prevents display-off and idle sleep through the user-session power API. **It does not prevent a Windows screen saver, security lock, manual sleep or organization-enforced lock policy.** It generates no fake input, installs no service and needs no elevated application. A screen saver or lock screen therefore does not prove keep-awake failure. Test display-off/idle-sleep timers with non-sensitive accounts, then confirm the normal timers resume after activity ends or the option is disabled.
+
+## Clipboard or network tray messages do not appear
+
+Enable **Show clipboard and network notifications** on the PC where messages should appear. They are off by default. Clipboard alerts are receive-only with a 30-second cooldown; copying locally does not create a clipboard tray message. Network status has a five-second cooldown, and queued events older than five seconds are discarded rather than replayed. Repeated updates therefore do not generate a message for every operation. Messages describe activity/connection state without copied text, image previews, names, IP addresses or paths. Windows notification settings, Focus Assist and the active notification area can suppress presentation. Notifications do not determine whether a transfer completed; check the receiving application and connection status independently.
 
 ## File transfer fails or the received file is hard to find
 
@@ -124,7 +154,7 @@ Include the app/Windows versions, affected direction, minimal steps, mouse/keybo
 
 Logs live in `%LOCALAPPDATA%\EasyMouseConnect\logs` as `emc.log`, `emc.1.log` and `emc.2.log`. Each is at most **2,097,152 bytes**, totaling at most **6,291,456 bytes (6 MiB)**. The export ZIP is separate from that rolling-log cap. A bounded nonblocking queue feeds the writer; dropped-event/write-failure counts mean the history may be incomplete.
 
-Records contain typed events, allowlisted categories and timing/version metadata. They exclude raw keys/input, typed text, clipboard/file content, credentials, user file names/paths, peer IPs and device names. Exports reparse and allowlist records and add numeric/boolean status, including aggregate counters, monitor count and virtual dimensions. They omit identity/settings files and local directory metadata. Operational metadata can still describe aspects of a setup, so review before sharing.
+Records contain typed events, allowlisted categories and timing/version metadata. They exclude raw keys/input, typed text, clipboard/file content, credentials, user file names/paths, peer IPs and device names. Exports reparse and allowlist records and add numeric/boolean status, including aggregate counters, monitor count and virtual dimensions. They omit identity/settings files, clipboard image-cache files and local directory metadata. Operational metadata can still describe aspects of a setup, so review before sharing.
 
 The summary's `app_version` identifies the exporter. Historical records retain valid original versions; missing/invalid versions stay absent. `logger_opened_at_unix_ms` identifies the current logger, while `latest_retained_engine_start` can belong to an older retained run. Current counters reset at process start. Versions and timestamps are operational metadata, not authenticated evidence.
 
@@ -136,6 +166,7 @@ Use the same current version on both PCs and preserve a working pairing when upg
 
 | Affected version | Symptom and action |
 | --- | --- |
+| 0.4.0 | Snipping Tool screenshots can paste into Explorer, but copying image files from Explorer is unsupported by that build and text/image transitions need the follow-up fix. Use 0.4.1 on both PCs; it converts one supported local image file to PNG and corrects baseline transitions. |
 | 0.3.1 | Green connection with rising raw-registration failures and no crossing. Upgrade both PCs; the registration check could reject valid Windows readback. Re-pairing or disabling Tailscale does not fix that predicate. |
 | 0.3.3 | Healthy registration but almost no captured movement. Upgrade both PCs; the source gate could discard valid motion at a clamped edge. |
 | 0.3.4 | Remote scrolling can trigger native-completion releases. Upgrade both PCs; 0.3.5 moves insertion off the hook thread. The older local-mouse reclaim counter covered movement only, so zero does not exclude button/wheel reclaim. |

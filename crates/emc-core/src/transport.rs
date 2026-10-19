@@ -1,7 +1,7 @@
 //! Noise over bounded TCP frames. No application message precedes authentication.
 use crate::pairing::{self, ManualCode};
 use anyhow::{bail, ensure, Context, Result};
-use emc_protocol::{Message, MAGIC};
+use emc_protocol::{Message, LEGACY_MAGIC, MAGIC};
 use snow::{Builder, TransportState};
 use std::{
     sync::{Arc, Mutex},
@@ -62,7 +62,10 @@ async fn write_frame(io: &mut (impl AsyncWrite + Unpin), bytes: &[u8]) -> Result
 pub async fn preamble(io: &mut TcpStream) -> Result<u8> {
     let mut header = [0; 6];
     timeout(Duration::from_secs(5), io.read_exact(&mut header)).await??;
-    ensure!(&header[..5] == MAGIC, "Unsupported protocol version");
+    ensure!(
+        &header[..5] == MAGIC,
+        "Unsupported protocol version; update both applications"
+    );
     ensure!(
         header[5] <= PAIR_PAKE,
         "Unknown channel; update both applications"
@@ -191,7 +194,7 @@ async fn handshake(mut io: TcpStream, options: Handshake<'_>) -> Result<Channel>
         "Missing pairing transcript binding"
     );
     io.set_nodelay(true)?;
-    let mut header = MAGIC.to_vec();
+    let mut header = if kind == PAIR { LEGACY_MAGIC } else { MAGIC }.to_vec();
     header.push(kind);
     let pairing = kind == PAIR || kind == PAIR_PAKE;
     let mut prologue = header.clone();
@@ -358,8 +361,15 @@ mod tests {
         tokio::join!(
             async {
                 let (mut io, _) = listener.accept().await?;
-                let kind = preamble(&mut io).await?;
-                accept(io, kind, &b.private, None, Some(&psk_b)).await
+                // Emulate an old receiver only for the explicit outbound
+                // legacy invitation import. The current listener rejects it.
+                let mut header = [0; 6];
+                io.read_exact(&mut header).await?;
+                ensure!(
+                    &header[..5] == LEGACY_MAGIC && header[5] == PAIR,
+                    "Wrong legacy preamble"
+                );
+                accept(io, PAIR, &b.private, None, Some(&psk_b)).await
             },
             async {
                 connect(
@@ -382,6 +392,29 @@ mod tests {
         assert!(matches!(b.reader.recv().await.unwrap(), Message::Ping(42)));
         b.writer.send(&Message::Pong(42)).await.unwrap();
         assert!(matches!(a.reader.recv().await.unwrap(), Message::Pong(42)));
+    }
+    #[tokio::test]
+    async fn current_listener_explicitly_rejects_every_legacy_channel() {
+        for kind in [PAIR, CONTROL, BULK, PAIR_PAKE] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let (server, ()) = tokio::join!(
+                async {
+                    let (mut io, _) = listener.accept().await.unwrap();
+                    preamble(&mut io).await
+                },
+                async {
+                    let mut io = TcpStream::connect(addr).await.unwrap();
+                    let mut header = LEGACY_MAGIC.to_vec();
+                    header.push(kind);
+                    io.write_all(&header).await.unwrap();
+                }
+            );
+            assert!(server
+                .unwrap_err()
+                .to_string()
+                .contains("update both applications"));
+        }
     }
     #[tokio::test]
     async fn wrong_secret_or_changed_identity_fails_closed() {

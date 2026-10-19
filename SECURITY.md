@@ -19,6 +19,8 @@ Pairing grants the other PC the ability to control the signed-in desktop and rec
 - An address or device name is not proof of identity. Unknown or changed keys require explicit pairing. A failed short-code exchange does not downgrade to the legacy invitation path.
 - Windows stores identity/configuration with current-user DPAPI. Each PC needs its own identity; do not distribute or copy profiles between devices. The restrictive-permission Unix store is a development fallback, not a Linux input backend.
 - Clipboard sharing is off by default and accepts text up to 1 MiB. File sharing is off by default, needs explicit recipient approval, and rejects files greater than or equal to 100,000,000 bytes.
+- Image clipboard has its own permission, off by default on both PCs. It converts supported clipboard pixels or one copied local PNG/JPEG/static WebP file into canonical PNG without a separate recipient prompt. Source files and transferred PNG are at most 16 MiB, decoded RGBA at most 64 MiB, with each dimension at most 16,384 pixels. Image permission does not authorize arbitrary files, peer-selected paths, folders, multi-file lists or network sources. Original-file transfers retain their separate consent requirement.
+- Received image paste formats reference a generated local PNG cache, bounded to four managed images of at most 16 MiB each. Cache files receive Windows internet-zone marking before publication and are excluded from diagnostics and source packages. They contain private image pixels as ordinary user-profile files, not DPAPI-encrypted identity storage. Clipboard permission changes cannot retract content already received or saved by another app.
 - Received files stay inside a generated child of the receive directory, never overwrite existing files, and require exact length and SHA-256 verification. Windows internet-zone metadata is applied before final rename; failure does not leave an unmarked final file. Content is never automatically opened or executed. The sender succeeds only after receiver confirmation.
 
 The cryptographic implementation and this integration carry no independent-audit claim. See the [protocol](docs/protocol.md) for wire/transcript binding, limits and compatibility behavior.
@@ -26,6 +28,8 @@ The cryptographic implementation and this integration carry no independent-audit
 ## Desktop authority and failure handling
 
 The app runs without a service or elevation. UAC/secure desktop, lock-screen and elevated-application control are outside its supported scope. It does not change firewall rules, global cursor settings, process priority or vendor mouse settings automatically.
+
+The explicit Troubleshooting firewall action launches a separate fixed Windows helper after local UAC approval. Its rule is limited to the current executable, one literal peer IP, inbound TCP 24859 and Domain/Private profiles. The application remains unelevated; the helper adds no input-control authority. Keep-awake is opt-in and only prevents display-off/idle sleep during authenticated activity; Windows screen savers, security locks and manual sleep remain effective.
 
 Input capture, encrypted transport and ordered native insertion remain in Rust. Every `SendInput` operation runs on one bounded ordered worker outside the hook/raw-input thread. Acknowledgment follows actual insertion and guarded ownership commit, not enqueueing. Original deadlines, connection epochs and separate local ownership tokens reject obsolete work; stale input and queue overflow release/disconnect rather than replaying a backlog. An OS call already in progress cannot be forcibly interrupted, and accepted events cannot be withdrawn; tracked holds are cleaned when insertion returns.
 
@@ -38,6 +42,8 @@ Local logs live under `%LOCALAPPDATA%\EasyMouseConnect\logs`. The three files `e
 Records contain timestamps, versions, typed operational events and allowlisted failure categories. Summaries contain status flags, counters, durations and numeric monitor count/virtual dimensions. They do not record raw keys, typed text, pointer histories, clipboard/file contents, credentials, filenames/paths, peer addresses or device names. Operational metadata can still describe aspects of a setup, so inspect it before sharing. Logs are local files, not separately DPAPI-encrypted identity data.
 
 Only an explicit **Export diagnostic ZIP** action creates `%LOCALAPPDATA%\EasyMouseConnect\diagnostic-exports\emc-diagnostics.zip`. Export reparses bounded records and keeps allowlisted fields; it does not copy arbitrary edited log bytes, configuration, identities or directory paths. The latest export replaces that one known ZIP. The app does not upload diagnostics automatically. The export-folder opener accepts no arbitrary frontend path.
+
+Optional tray notifications default off and contain fixed connection or received-clipboard status only. They include no copied text, image previews, names, addresses or paths; clipboard events are rate-limited and expire rather than replaying a delayed backlog. Windows notification policy controls presentation.
 
 ## Release review
 

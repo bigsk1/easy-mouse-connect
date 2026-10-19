@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const native = typeof window.__TAURI__?.core?.invoke === 'function';
   const invoke = (command, args) => window.__TAURI__.core.invoke(command, args);
-  const defaults = { enabled: true, share_clipboard: false, share_files: false, edge_switching: true, peer_on_left: false };
+  const defaults = { enabled: true, share_clipboard: false, share_clipboard_images: false, share_files: false, keep_peer_awake: false, show_status_notifications: false, edge_switching: true, peer_on_left: false };
   let status = {
     device_name: 'This Windows device', public_key: '', local_addresses: [], enabled: true,
     connected: false, remote_name: null, peer: null, settings: { ...defaults },
@@ -26,6 +26,9 @@
   let exportBusy = false;
   let folderBusy = false;
   let exportFolderBusy = false;
+  let firewallBusy = false;
+  let firewallAddressEdited = false;
+  let projectOpening = false;
   let invitationRevealed = false;
   let generatedInvitation = '';
   let pairSession = 0;
@@ -151,6 +154,7 @@
     renderOffers();
     renderEvents();
     renderDiagnostics();
+    renderTroubleshooting();
   }
 
   function renderInvitation() {
@@ -299,6 +303,16 @@
     }
   }
 
+  function renderTroubleshooting() {
+    const address = $('firewall-address');
+    if (!firewallAddressEdited && status.peer?.address) address.value = status.peer.address;
+    address.disabled = !native || firewallBusy;
+    $('add-firewall-rule').disabled = !native || firewallBusy || !address.value.trim();
+    $('add-firewall-rule').setAttribute('aria-busy', String(firewallBusy));
+    setText('firewall-action-label', firewallBusy ? 'Waiting for Windows…' : 'Add a firewall rule');
+    $('firewall-preview-note').hidden = native;
+  }
+
   async function refresh() {
     if (!native || refreshing) return;
     refreshing = true;
@@ -332,7 +346,7 @@
 
   function navigate() {
     const desired = location.hash.replace('#', '');
-    const page = ['devices', 'sharing', 'security', 'diagnostics'].includes(desired) ? desired : 'devices';
+    const page = ['devices', 'sharing', 'security', 'diagnostics', 'troubleshooting'].includes(desired) ? desired : 'devices';
     document.querySelectorAll('.page').forEach((section) => { section.hidden = section.id !== `page-${page}`; });
     document.querySelectorAll('[data-page]').forEach((link) => {
       const active = link.dataset.page === page;
@@ -449,6 +463,36 @@
     try { setText('diagnostics-output', await invoke('diagnostics', { address })); }
     catch (error) { setText('diagnostics-output', errorText(error)); }
     finally { diagnosticsBusy = false; $('run-diagnostics').disabled = !ready; }
+  });
+  $('project-link').addEventListener('click', async (event) => {
+    if (!native) return;
+    event.preventDefault();
+    if (projectOpening) return;
+    projectOpening = true;
+    try { await invoke('open_project_url'); }
+    catch (error) { toast(errorText(error), true); }
+    finally { projectOpening = false; }
+  });
+  $('firewall-address').addEventListener('input', () => {
+    firewallAddressEdited = true;
+    renderTroubleshooting();
+  });
+  $('firewall-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!native || firewallBusy) return;
+    const address = $('firewall-address').value.trim();
+    if (!address) return;
+    // Rust validates the literal IP and selects the fixed program/port and helper.
+    // The WebView can supply no executable, rule text, command or privilege option.
+    firewallBusy = true; renderTroubleshooting();
+    const result = $('firewall-result');
+    result.hidden = false; result.classList.remove('error');
+    setText('firewall-result', 'Waiting for Windows administrator approval…');
+    try {
+      setText('firewall-result', await invoke('add_peer_firewall_rule', { address }));
+    } catch (error) {
+      result.classList.add('error'); setText('firewall-result', errorText(error));
+    } finally { firewallBusy = false; renderTroubleshooting(); }
   });
   $('export-diagnostics').addEventListener('click', async () => {
     if (!native || !diagnosticsReady || exportBusy) return;
